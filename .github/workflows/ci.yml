@@ -16,12 +16,14 @@ concurrency:
 jobs:
   test:
     name: Unit tests (Node)
-    runs-on: ubuntu-latest
+    # windows/src (the engine) is Windows code with Windows-path fixtures; tests/helpers/orbit.js needs Node 24
+    # (module.registerHooks).
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: package-lock.json
       # Root devDependencies (jsdom) for the DOM tests. test:ci fails under the coverage thresholds in package.json.
