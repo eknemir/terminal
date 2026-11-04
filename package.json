@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "name": "terminal-tests",
+  "description": "Unit tests for the whole repo (Node's built-in test runner). See tests/README.md.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test --experimental-test-coverage --test-coverage-exclude=tests/** \"tests/**/*.test.js\"",
+    "test:ci": "node --test --experimental-test-coverage --test-coverage-include=app/Resources/web/accent.js --test-coverage-include=app/Resources/web/appname.js --test-coverage-include=app/Resources/web/applogo.js --test-coverage-include=windows/src/guards.js --test-coverage-include=windows/src/skills-core.js --test-coverage-exclude=tests/** --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=95 \"tests/**/*.test.js\""
+  }
+}

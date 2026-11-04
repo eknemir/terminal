@@ -1,0 +1,108 @@
+/* The chats list beside the dashboard (the Mac's SidebarView), in the theme's colours (the app inserts the theme's
+   tokens, Themes). */
+html, body { height: 100%; margin: 0; }
+body {
+  display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    radial-gradient(120% 50% at 0% 0%, rgba(124, 92, 245, 0.10), transparent 60%),
+    radial-gradient(100% 40% at 100% 100%, rgba(92, 225, 240, 0.06), transparent 60%),
+    #0b0d1a;
+  color: var(--txt, #f0eefa);
+  font: 12px/1.4 "Inter", "Segoe UI Variable Text", "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+  cursor: default; user-select: none;
+  /* It fades as it slides open and shut (the app moves it, at the same pace). */
+  transition: opacity 450ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+body.hidden { opacity: 0; }
+svg { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+button { display: flex; align-items: center; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; transition: color 160ms ease, opacity 160ms ease, background 160ms ease; }
+.fill { flex: 1; min-width: 0; }
+.n { color: var(--dim2, #6b6987); font-size: 10px; font-variant-numeric: tabular-nums; }
+.x { color: var(--dim, #8a88a8); font-size: 10px; }
+.x svg { stroke-width: 2.2; }
+.x:hover { color: var(--hi, #fff); }
+
+#top { display: flex; align-items: center; gap: 8px; padding: 14px 14px 0; white-space: nowrap; }
+.tag {
+  height: 22px; padding: 0 10px; border-radius: 999px; line-height: 22px;
+  background: linear-gradient(135deg, #5ce1f0, #7c5cf5); color: #07080f; font-size: 11px; font-weight: 600;
+  box-shadow: 0 4px 14px -4px rgba(124, 92, 245, 0.6);
+}
+#count { overflow: hidden; color: var(--dim, #8a88a8); font-size: 11px; text-overflow: ellipsis; }
+#key { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); color: var(--dim2, #6b6987); font-size: 10px; }
+
+#search {
+  display: flex; align-items: center; gap: 8px; height: 32px; margin: 12px; padding: 0 12px; box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 999px; background: rgba(20, 24, 48, 0.55); color: var(--dim, #8a88a8);
+  transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+#search:focus-within { border-color: rgba(92, 225, 240, 0.4); background: rgba(20, 24, 48, 0.75); box-shadow: 0 0 0 3px rgba(92, 225, 240, 0.14); }
+#lens { display: flex; font-size: 12px; }
+#q { flex: 1; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--txt, #f0eefa); font: inherit; user-select: text; }
+#q::placeholder { color: var(--dim2, #6b6987); }
+
+#bulk { display: flex; align-items: center; gap: 8px; padding: 0 14px 8px; }
+#bulk[hidden] { display: none; }
+#picked { color: #5ce1f0; font-size: 11px; font-weight: 600; white-space: nowrap; }
+#bulkArchive { height: 24px; padding: 0 12px; border-radius: 999px; background: linear-gradient(135deg, #5ce1f0, #7c5cf5); color: #07080f; font-size: 11px; font-weight: 600; box-shadow: 0 4px 14px -4px rgba(124, 92, 245, 0.6); }
+#bulkArchive:hover { filter: brightness(1.08); }
+
+#list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 14px; scrollbar-width: thin; scrollbar-color: rgba(124, 92, 245, 0.3) transparent; }
+#list::-webkit-scrollbar { width: 6px; }
+#list::-webkit-scrollbar-thumb { border-radius: 6px; background: rgba(124, 92, 245, 0.3); }
+
+/* FAVORITES, at the top */
+.sec { display: flex; align-items: center; gap: 6px; padding: 14px 16px 4px; }
+.sec svg { color: #e9a6f7; fill: currentColor; font-size: 10px; }
+.sec b { color: var(--dim, #8a88a8); font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* A folder: a click picks it for archiving several at once; its buttons show on hover. */
+.head { display: flex; align-items: center; gap: 7px; margin: 8px 8px 0; padding: 6px 8px; border-radius: 10px; transition: background 160ms ease; }
+.head:hover { background: rgba(255, 255, 255, 0.03); }
+.head.sel { background: rgba(92, 225, 240, 0.1); box-shadow: inset 0 0 0 1px rgba(92, 225, 240, 0.2); }
+.head > svg { color: #7c5cf5; font-size: 11px; }
+/* Cut at its start, so the folder's own name stays. */
+.lbl { min-width: 0; overflow: hidden; color: var(--dim, #a8a6c4); font-size: 11px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.head button { color: var(--dim, #8a88a8); font-size: 11px; }
+.head button:hover { color: var(--hi, #fff); }
+.head .farc { opacity: 0; pointer-events: none; }
+.head .plus { color: #5ce1f0; font-size: 10px; opacity: 0.4; }
+.head .plus svg { stroke-width: 2.2; }
+.head:hover .farc { opacity: 1; pointer-events: auto; }
+.head:hover .plus { opacity: 1; }
+
+/* A chat */
+.row { display: flex; align-items: center; gap: 10px; margin: 2px 8px 0; padding: 7px 10px 7px 16px; border-radius: 10px; transition: background 160ms ease, box-shadow 160ms ease; }
+.row:hover { background: rgba(255, 255, 255, 0.04); }
+.row.open { background: linear-gradient(90deg, rgba(92, 225, 240, 0.10), rgba(124, 92, 245, 0.08)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }
+.txt { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.t, .m { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.t { color: var(--txt, #e6e4f4); font-size: 12px; font-weight: 500; }
+/* A chat's name edited in place (Rename…). */
+.ren { width: 100%; padding: 2px 6px; box-sizing: border-box; border: 1px solid rgba(92, 225, 240, 0.5); border-radius: 6px; outline: 0; background: rgba(92, 225, 240, 0.06); box-shadow: 0 0 0 3px rgba(92, 225, 240, 0.14); color: var(--hi, #fff); font: inherit; font-size: 12px; }
+.t.live { color: var(--hi, #fff); }
+.m { color: var(--dim, #8a88a8); font-size: 10.5px; }
+.m.warn { color: #e9a6f7; }
+/* Its star and archive button show on hover (a starred one keeps its star); laid out always, so nothing moves. */
+.row button { color: var(--dim, #8a88a8); font-size: 11px; opacity: 0; pointer-events: none; }
+.row:hover button, .row .star.on { opacity: 1; pointer-events: auto; }
+.row button:hover { color: var(--hi, #fff); }
+.row .star.on { color: #e9a6f7; }
+.row .star.on svg { fill: currentColor; }
+.more { padding: 4px 0 4px 30px; color: var(--dim, #8a88a8); font-size: 10.5px; }
+.more:hover { color: #5ce1f0; }
+
+/* The status light: working (the accent), your turn (cyan), needs you (blinking), ended (hollow). */
+.dot { width: 7px; height: 7px; flex: none; box-sizing: border-box; border-radius: 50%; background: var(--st); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st) 16%, transparent); }
+.dot.hollow { border: 1px solid var(--st); background: transparent; box-shadow: none; animation: none; }
+.s-busy { --st: #7c5cf5; animation: glow 0.9s ease-in-out infinite alternate; }
+.s-idle { --st: #5ce1f0; }
+.s-waiting { --st: #e9a6f7; animation: glow 0.5s ease-in-out infinite alternate, blink 0.5s ease-in-out infinite alternate; }
+.s-ended { --st: var(--ended, #55536e); }
+@keyframes glow { to { box-shadow: 0 0 0 3px color-mix(in srgb, var(--st) 22%, transparent), 0 0 8px var(--st); } }
+@keyframes blink { from { opacity: 0.4; } to { opacity: 1; } }
+
+/* Its right edge: drag to make it wider or narrower. */
+#grip { position: fixed; top: 0; right: 0; bottom: 0; width: 5px; cursor: col-resize; transition: background 160ms ease; }
+#grip:hover { background: linear-gradient(180deg, transparent, rgba(92, 225, 240, 0.3), transparent); }

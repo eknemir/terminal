@@ -1,0 +1,515 @@
+'use strict';
+// The token savers for the AI tools on this PC, as the Mac app's TokenSavers.swift has them: both ship in the app and are
+// on from its first launch that has them, without asking; Settings turns each off (and on again).
+// - rtk (github.com/rtk-ai/rtk, Apache-2.0) shortens what commands print before Claude Code or Codex reads it: the app's
+//   copy goes to %LOCALAPPDATA%\terminal-app\bin (an update's installer replaces the app's own folder) and sets itself
+//   up as `rtk init` does, a hook in Claude Code and its notes and hook in Codex. Off: `rtk init --uninstall`.
+// - caveman (github.com/JuliusBrussee/caveman, MIT) makes Claude Code and Codex answer tersely: its rules at the start of
+//   every session and a one-line reminder with every prompt (two hooks in Claude Code's settings that print the app's
+//   copies), and the rules in Codex's AGENTS.md. Off: the hooks and the rules go.
+// One the user set up themselves (their own rtk hook, the caveman plugin or the hooks its installer wires) takes the app's
+// place and switches the same way: off takes it out of the tools' settings and keeps it, on puts it back as it was. The
+// app keeps it current too: an rtk older than the app's is replaced by it where it lies (rtk has no updater; one a
+// package manager keeps, winget's or Scoop's, is theirs), and Claude Code updates the caveman plugin by itself
+// (auto-update on for its marketplace, as /plugin's "Enable auto-update" does).
+const { execFile } = require('child_process');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+const KINDS = ['rtk', 'caveman'];
+// On or off as the user left it before the switches could take the user's own (missing: not decided yet).
+const KEY = { rtk: 'tokenSavers', caveman: 'tokenSaverCaveman' };
+// Now: what the user decided for each, and what of their own the app took out when they turned it off.
+const STATE_KEY = 'tokenSaversState';
+
+/**
+ * `ownDir`: the app's folder for them; `bundled`: { rtk, caveman }, what the app ships (rtk.exe, the caveman folder);
+ * `claudeDir` and `codexDir`: where Claude Code and Codex keep their settings (CLAUDE_CONFIG_DIR, CODEX_HOME), which rtk
+ * reads too. `which(name)`: a program on PATH, for an rtk of the user's own.
+ */
+function createSavers({ settings, ownDir, bundled, claudeDir, codexDir, which, usable = true }) {
+  const binDir = path.join(ownDir, 'bin');
+  const ourRtk = path.join(binDir, 'rtk.exe');
+  const ourCaveman = path.join(ownDir, 'caveman');
+  const settingsFile = path.join(claudeDir, 'settings.json');
+  const codex = () => fs.existsSync(codexDir);
+  const exists = (p) => !!p && fs.existsSync(p);
+
+  // rtk's hook rewrites `git status` into `rtk git status` and its own hook command is a plain `rtk`, so it has to be on
+  // the PATH: the app's terminals have binDir on theirs (terminals.js). Where it isn't (Claude started elsewhere), the
+  // hook does nothing at all and commands run as they are. Claude Code runs hooks with Git Bash, Codex with cmd.exe (its
+  // `commandWindows`, which it takes over `command` on Windows), so each gets the guard in its own shell.
+  const GUARD_MARK = 'terminal-app-rtk';
+  const guarded = (tool) => `sh -c 'command -v rtk >/dev/null 2>&1 && exec rtk hook ${tool}; cat >/dev/null' ${GUARD_MARK}`;
+  const CODEX_GUARD = 'where /q rtk && rtk hook codex || more >nul';
+  // What marks the app's caveman hooks and Codex notes, so they come out again and nothing else does.
+  const MARK = 'terminal-app/caveman/';
+  const CODEX_START = '<!-- terminal-app: caveman -->', CODEX_END = '<!-- /terminal-app: caveman -->';
+
+  const shipped = (kind) => usable && (kind === 'rtk' ? exists(bundled.rtk) : exists(bundled.caveman && path.join(bundled.caveman, 'rules.md')));
+  const record = (kind) => ({ ...((settings.get(STATE_KEY) || {})[kind] || {}) });
+  const saveRecord = (kind, rec) => settings.set(STATE_KEY, { ...(settings.get(STATE_KEY) || {}), [kind]: rec });
+  const decided = (kind) => (typeof record(kind).on === 'boolean' ? record(kind).on : settings.get(KEY[kind]));
+  const available = (kind) => shipped(kind) || !!theirs(kind) || !!record(kind).kept;
+
+  // ---------- Claude Code's settings ----------
+  // Unreadable settings (a stray comma while the user edits them) are left as they are: writing them back would lose
+  // the rest of what's in them.
+  function readJSON(file) {
+    let text;
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch {
+      return {};
+    }
+    try {
+      const j = JSON.parse(text.replace(/^﻿/, ''));
+      return j && typeof j === 'object' && !Array.isArray(j) ? j : null;
+    } catch {
+      return null;
+    }
+  }
+  function writeJSON(file, json) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(json, null, 2) + '\n');
+    fs.renameSync(tmp, file);
+  }
+  /** Claude Code's settings with their hooks changed, the rest as they were (and the file untouched when nothing is). */
+  function editSettings(change) {
+    const json = readJSON(settingsFile);
+    if (!json) return;
+    const was = JSON.stringify(json);
+    const hooks = json.hooks && typeof json.hooks === 'object' ? json.hooks : {};
+    change(hooks);
+    if (Object.keys(hooks).length) json.hooks = hooks;
+    else delete json.hooks;
+    if (JSON.stringify(json) !== was) writeJSON(settingsFile, json);
+  }
+
+  /** Every hook (its command and where it is) in a settings file: Claude Code's, or Codex's hooks.json. */
+  function hooksOf(file) {
+    const json = readJSON(file) || {};
+    const out = [];
+    for (const [event, list] of Object.entries(json.hooks && typeof json.hooks === 'object' ? json.hooks : {})) {
+      for (const entry of Array.isArray(list) ? list : []) {
+        for (const h of (entry && entry.hooks) || []) if (h && typeof h.command === 'string') out.push({ event, entry, hook: h });
+      }
+    }
+    return out;
+  }
+  // `rtk hook claude` (with or without its path, quoted or not) or the rewrite script older rtks set up; not the app's.
+  const words = (cmd) => [...cmd.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2]);
+  function isRtkHook(h) {
+    const cmd = h.command;
+    if (cmd.includes(GUARD_MARK) || h.commandWindows === CODEX_GUARD) return false;
+    if (cmd.includes('rtk-rewrite')) return true;
+    const w = words(cmd);
+    return w.length >= 2 && path.basename(w[0].replace(/\\/g, '/')).replace(/\.exe$/i, '').toLowerCase() === 'rtk' && w[1] === 'hook';
+  }
+  const isTheirCaveman = (h) => h.command.includes('caveman') && !h.command.includes(MARK);
+
+  /** What one the user set up themselves runs: their rtk hook's program, the caveman plugin, or "hooks" for the hooks
+   *  caveman's installer wires into Claude Code's settings where its plugin wouldn't install. */
+  function theirs(kind) {
+    if (kind === 'rtk') {
+      const own = hooksOf(settingsFile).find((x) => isRtkHook(x.hook));
+      return own ? words(own.hook.command)[0] || 'rtk' : null;
+    }
+    const plugins = (readJSON(settingsFile) || {}).enabledPlugins || {};
+    const plugin = Object.keys(plugins).find((k) => k.startsWith('caveman@') && plugins[k] === true);
+    if (plugin) return plugin;
+    return hooksOf(settingsFile).some((x) => isTheirCaveman(x.hook)) ? 'hooks' : null;
+  }
+
+  /** Whether the app's own is set up: its hook in Claude Code's settings. */
+  const installed = (kind) => hooksOf(settingsFile).some((x) => x.hook.command.includes(kind === 'rtk' ? GUARD_MARK : MARK));
+
+  /** Takes the hooks `match` picks out of a settings file (an entry left with none goes too), and returns them with
+   *  where they were, to put back later. */
+  function takeOutHooks(file, match) {
+    const json = exists(file) ? readJSON(file) : null;
+    if (!json || !json.hooks || typeof json.hooks !== 'object') return [];
+    const taken = [];
+    for (const [event, list] of Object.entries(json.hooks)) {
+      if (!Array.isArray(list)) continue;
+      json.hooks[event] = list
+        .map((entry) => {
+          if (!entry || !Array.isArray(entry.hooks)) return entry;
+          const picked = entry.hooks.filter((h) => h && typeof h.command === 'string' && match(h));
+          if (!picked.length) return entry;
+          for (const hook of picked) taken.push({ file, event, matcher: entry.matcher ?? null, hook });
+          const rest = entry.hooks.filter((h) => !picked.includes(h));
+          return rest.length ? { ...entry, hooks: rest } : null;
+        })
+        .filter(Boolean);
+      if (!json.hooks[event].length) delete json.hooks[event];
+    }
+    if (!Object.keys(json.hooks).length) delete json.hooks;
+    if (taken.length) writeJSON(file, json);
+    return taken;
+  }
+
+  /** The user's own out of the tools' settings, and what it takes to put it back: their rtk hooks (Claude Code's and
+   *  Codex's), the caveman plugin turned off as `claude plugin disable` leaves it, or its installer's hooks. */
+  function takeOut(kind) {
+    if (kind === 'rtk') {
+      return { hooks: [...takeOutHooks(settingsFile, isRtkHook), ...takeOutHooks(path.join(codexDir, 'hooks.json'), isRtkHook)] };
+    }
+    const json = readJSON(settingsFile);
+    const plugins = [];
+    if (json && json.enabledPlugins) {
+      for (const k of Object.keys(json.enabledPlugins)) if (k.startsWith('caveman@') && json.enabledPlugins[k] === true) plugins.push(k);
+      for (const k of plugins) json.enabledPlugins[k] = false;
+      if (plugins.length) writeJSON(settingsFile, json);
+    }
+    return { plugins, hooks: takeOutHooks(settingsFile, isTheirCaveman) };
+  }
+
+  function putBack(kept) {
+    if (Array.isArray(kept.plugins) && kept.plugins.length) {
+      const json = readJSON(settingsFile);
+      if (json) {
+        json.enabledPlugins = { ...(json.enabledPlugins || {}) };
+        for (const k of kept.plugins) json.enabledPlugins[k] = true;
+        writeJSON(settingsFile, json);
+      }
+    }
+    const byFile = new Map();
+    for (const r of Array.isArray(kept.hooks) ? kept.hooks : []) {
+      if (!r || !r.file || !r.hook) continue;
+      if (!byFile.has(r.file)) byFile.set(r.file, []);
+      byFile.get(r.file).push(r);
+    }
+    for (const [file, taken] of byFile) {
+      const json = exists(file) ? readJSON(file) : {};
+      if (!json) continue;
+      json.hooks = json.hooks && typeof json.hooks === 'object' ? json.hooks : {};
+      for (const r of taken) {
+        const entries = Array.isArray(json.hooks[r.event]) ? json.hooks[r.event] : [];
+        // Set up again by the user meanwhile: not twice.
+        if (entries.some((e) => e && Array.isArray(e.hooks) && e.hooks.some((h) => h && h.command === r.hook.command))) continue;
+        entries.push({ ...(r.matcher != null && { matcher: r.matcher }), hooks: [r.hook] });
+        json.hooks[r.event] = entries;
+      }
+      writeJSON(file, json);
+    }
+  }
+
+  /** The app's own, beside the user's: only what is the app's goes (rtk's own uninstall would take the user's RTK.md
+   *  along). */
+  function removeOurs(kind) {
+    if (kind === 'caveman') return uninstallCaveman();
+    takeOutHooks(settingsFile, (h) => h.command.includes(GUARD_MARK));
+    takeOutHooks(path.join(codexDir, 'hooks.json'), (h) => h.commandWindows === CODEX_GUARD);
+  }
+
+  /** `rtk --version`'s numbers ("rtk 1.1.0"). */
+  async function rtkVersion(bin) {
+    const m = /^rtk (\d+(?:\.\d+)*)/.exec((await run(['--version'], bin)).trim());
+    return m ? m[1].split('.').map(Number) : null;
+  }
+  const older = (a, b) => {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0);
+    return false;
+  };
+
+  /** The user's own, current: their rtk replaced by the app's newer one where it lies, as rtk's installer updates it
+   *  (not one a package manager keeps, nor the app's own); Claude Code updating their caveman plugin. */
+  async function keepCurrent(kind, own) {
+    if (kind === 'caveman') {
+      const at = own.indexOf('@');
+      if (at > 0) autoUpdate(own.slice(at + 1));
+      return;
+    }
+    const named = own && own !== 'rtk' && path.isAbsolute(own) ? own : which('rtk');
+    if (!named || !exists(bundled.rtk) || path.resolve(named) === path.resolve(ourRtk)) return;
+    if (/[\\/](WinGet|scoop|chocolatey)[\\/]/i.test(named) || !/^rtk(\.exe)?$/i.test(path.basename(named))) return;
+    const [theirsV, oursV] = [await rtkVersion(named), await rtkVersion(bundled.rtk)];
+    if (!theirsV || !oursV || !older(theirsV, oursV)) return;
+    try {
+      // A running one (a hook at work) can't be written over, but it can be moved aside.
+      try {
+        fs.copyFileSync(bundled.rtk, named);
+      } catch {
+        fs.renameSync(named, `${named}.old-${Date.now()}`);
+        fs.copyFileSync(bundled.rtk, named);
+      }
+    } catch (e) {
+      console.error('savers: rtk update:', e.message);
+    }
+  }
+
+  /** Claude Code updates a plugin by itself only from a marketplace with auto-update on: Anthropic's own by default,
+   *  the rest once /plugin's "Enable auto-update" is chosen. This turns it on for the caveman plugin's, in the user's
+   *  settings, where that switch writes it too. One the user turned off stays off. */
+  function autoUpdate(name) {
+    const known = (readJSON(path.join(claudeDir, 'plugins', 'known_marketplaces.json')) || {})[name];
+    if (known && known.autoUpdate !== undefined) return;
+    const json = readJSON(settingsFile);
+    if (!json || (json.extraKnownMarketplaces !== undefined && (typeof json.extraKnownMarketplaces !== 'object' || Array.isArray(json.extraKnownMarketplaces)))) return;
+    const all = { ...(json.extraKnownMarketplaces || {}) };
+    const entry = { ...(all[name] || {}) };
+    if (entry.source === undefined) {
+      // Recorded only by Claude Code (an older install): declared here too, from the same source.
+      if (!known || known.source === undefined) return;
+      entry.source = known.source;
+    }
+    if (entry.autoUpdate !== undefined) return;
+    entry.autoUpdate = true;
+    all[name] = entry;
+    json.extraKnownMarketplaces = all;
+    writeJSON(settingsFile, json);
+  }
+
+  // ---------- rtk ----------
+  function run(args, bin = ourRtk) {
+    return new Promise((resolve) => {
+      execFile(bin, args, { windowsHide: true, timeout: 30_000, maxBuffer: 4 << 20 }, (err, stdout) => resolve(err && !stdout ? '' : String(stdout || '')));
+    });
+  }
+
+  const sameFile = (a, b) => {
+    try {
+      if (fs.statSync(a).size !== fs.statSync(b).size) return false;
+      const hash = (f) => crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
+      return hash(a) === hash(b);
+    } catch {
+      return false;
+    }
+  };
+
+  /** The app's rtk in its own folder: a running one (a hook at work) can't be written over, but it can be moved aside. */
+  function placeRtk() {
+    fs.mkdirSync(binDir, { recursive: true });
+    for (const f of fs.readdirSync(binDir)) if (/^rtk\.exe\.old-/.test(f)) fs.rm(path.join(binDir, f), { force: true }, () => {});
+    if (sameFile(bundled.rtk, ourRtk)) return;
+    try {
+      fs.copyFileSync(bundled.rtk, ourRtk);
+    } catch {
+      fs.renameSync(ourRtk, `${ourRtk}.old-${Date.now()}`);
+      fs.copyFileSync(bundled.rtk, ourRtk);
+    }
+    const licence = path.join(path.dirname(bundled.rtk), 'rtk-LICENSE');
+    if (exists(licence)) fs.copyFileSync(licence, path.join(binDir, 'rtk-LICENSE'));
+  }
+
+  /** Every hook command `from` in every event becomes `to`; the same hook twice in one event goes once. */
+  function rewrite(hooks, from, to) {
+    for (const [event, list] of Object.entries(hooks)) {
+      if (!Array.isArray(list)) continue;
+      const seen = new Set();
+      hooks[event] = list
+        .map((entry) => {
+          if (!entry || !Array.isArray(entry.hooks)) return entry;
+          const kept = entry.hooks.map((h) => (h && h.command === from ? { ...h, command: to } : h)).filter((h) => {
+            // Only the app's own hook is taken out when it's there twice (rtk adds its plain one again beside it).
+            if (!h || h.command !== to) return true;
+            const k = `${entry.matcher || ''}\n${to}`;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+          return kept.length ? { ...entry, hooks: kept } : null;
+        })
+        .filter(Boolean);
+      if (!hooks[event].length) delete hooks[event];
+    }
+  }
+
+  /** rtk's hooks in Claude Code's settings and Codex's hooks.json, guarded (`guarding`) or plain again. */
+  function rewriteRtkHooks(guarding) {
+    editSettings((hooks) => (guarding ? rewrite(hooks, 'rtk hook claude', guarded('claude')) : rewrite(hooks, guarded('claude'), 'rtk hook claude')));
+    const file = path.join(codexDir, 'hooks.json');
+    const json = exists(file) ? readJSON(file) : null;
+    if (!json || !json.hooks || typeof json.hooks !== 'object') return;
+    const was = JSON.stringify(json);
+    for (const list of Object.values(json.hooks)) {
+      for (const entry of Array.isArray(list) ? list : []) {
+        for (const h of (entry && entry.hooks) || []) {
+          if (!h || h.command !== 'rtk hook codex') continue;
+          if (guarding) h.commandWindows = CODEX_GUARD;
+          else if (h.commandWindows === CODEX_GUARD) delete h.commandWindows;
+        }
+      }
+    }
+    if (JSON.stringify(json) !== was) writeJSON(file, json);
+  }
+
+  async function installRtk() {
+    if (!exists(bundled.rtk)) return;
+    placeRtk();
+    // rtk knows its hook only as it writes it: plain while it looks, or it puts a second one in.
+    rewriteRtkHooks(false);
+    await run(['init', '-g', '--auto-patch']);
+    if (codex()) await run(['init', '-g', '--codex']);
+    rewriteRtkHooks(true);
+  }
+
+  async function uninstallRtk() {
+    if (!exists(ourRtk)) return removeOurs('rtk');
+    // rtk takes out the hooks it knows, the plain ones.
+    rewriteRtkHooks(false);
+    await run(['init', '-g', '--uninstall']);
+    if (codex()) await run(['init', '-g', '--codex', '--uninstall']);
+  }
+
+  // ---------- caveman ----------
+  // Git Bash reads a Windows path with forward slashes as it is; single quotes keep spaces and the like in one word.
+  const shellQuote = (s) => `'${s.replace(/\\/g, '/').replace(/'/g, `'\\''`)}'`;
+
+  function addHook(hooks, event, command) {
+    removeHook(hooks, event);
+    hooks[event] = [...(Array.isArray(hooks[event]) ? hooks[event] : []), { hooks: [{ type: 'command', command, timeout: 5 }] }];
+  }
+  /** Takes the app's caveman hook out of an event, and the entry with it when nothing else is left in it. */
+  function removeHook(hooks, event) {
+    if (!Array.isArray(hooks[event])) return;
+    const list = hooks[event]
+      .map((entry) => {
+        if (!entry || !Array.isArray(entry.hooks)) return entry;
+        const kept = entry.hooks.filter((h) => !(h && typeof h.command === 'string' && h.command.includes(MARK)));
+        return kept.length ? { ...entry, hooks: kept } : null;
+      })
+      .filter(Boolean);
+    if (list.length) hooks[event] = list;
+    else delete hooks[event];
+  }
+
+  /** Codex's AGENTS.md without the app's caveman notes, then `change` (which may put them back). */
+  function editCodexNotes(change) {
+    const file = path.join(codexDir, 'AGENTS.md');
+    let old = '';
+    try {
+      old = fs.readFileSync(file, 'utf8');
+    } catch {}
+    let text = old;
+    const a = text.indexOf(CODEX_START), b = a >= 0 ? text.indexOf(CODEX_END, a) : -1;
+    if (a >= 0 && b >= 0) {
+      // The notes go with the line break put before them and the one after.
+      let lo = a, hi = b + CODEX_END.length;
+      if (lo > 0 && text[lo - 1] === '\n') lo--;
+      if (text[hi] === '\n') hi++;
+      text = text.slice(0, lo) + text.slice(hi);
+    }
+    const next = change(text);
+    if (next === old) return;
+    // A file only the app's notes were in goes with them.
+    if (!next.trim()) return fs.rmSync(file, { force: true });
+    fs.mkdirSync(codexDir, { recursive: true });
+    fs.writeFileSync(file, next);
+  }
+
+  function installCaveman() {
+    if (!exists(bundled.caveman)) return;
+    fs.mkdirSync(ourCaveman, { recursive: true });
+    for (const name of ['rules.md', 'remind.json', 'LICENSE']) fs.copyFileSync(path.join(bundled.caveman, name), path.join(ourCaveman, name));
+    const rules = path.join(ourCaveman, 'rules.md'), remind = path.join(ourCaveman, 'remind.json');
+    editSettings((hooks) => {
+      addHook(hooks, 'SessionStart', `cat ${shellQuote(rules)}`);
+      addHook(hooks, 'UserPromptSubmit', `cat ${shellQuote(remind)}`);
+    });
+    if (codex()) {
+      const block = `${CODEX_START}\n${fs.readFileSync(rules, 'utf8').trim()}\n${CODEX_END}\n`;
+      editCodexNotes((notes) => `${notes}\n${block}`);
+    }
+  }
+
+  function uninstallCaveman() {
+    editSettings((hooks) => {
+      for (const event of ['SessionStart', 'UserPromptSubmit']) removeHook(hooks, event);
+    });
+    editCodexNotes((notes) => notes);
+    fs.rmSync(ourCaveman, { recursive: true, force: true });
+  }
+
+  // ---------- the switches ----------
+  // One at a time: two quick clicks would otherwise write the same settings at once.
+  let queue = Promise.resolve();
+  const serial = (fn) => {
+    const next = queue.then(fn, fn);
+    queue = next.catch(() => {});
+    return next;
+  };
+
+  async function turn(kind, on) {
+    const rec = record(kind);
+    rec.on = !!on;
+    try {
+      if (on) {
+        // The user's own goes back as it was; without one, the app's.
+        if (rec.kept) {
+          putBack(rec.kept);
+          delete rec.kept;
+        }
+        const own = theirs(kind);
+        if (own) await keepCurrent(kind, own);
+        else if (!installed(kind)) await (kind === 'rtk' ? installRtk() : installCaveman());
+      } else if (theirs(kind)) {
+        rec.kept = takeOut(kind);
+        if (installed(kind)) removeOurs(kind);
+      } else if (installed(kind)) {
+        await (kind === 'rtk' ? uninstallRtk() : uninstallCaveman());
+      }
+    } catch (e) {
+      console.error(`savers: ${kind} ${on ? 'on' : 'off'}:`, e.message);
+    }
+    saveRecord(kind, rec);
+  }
+
+  /** Settings' switches: the choice is kept, then the tools' settings follow. */
+  function set(kind, on) {
+    return serial(() => turn(kind, on));
+  }
+
+  /** For Settings: each saver's state, and what rtk saved so far (its `gain`). */
+  function state() {
+    return serial(async () => {
+      const out = {};
+      for (const kind of KINDS) {
+        const own = theirs(kind);
+        const on = !!own || installed(kind);
+        const s = { available: available(kind), on };
+        if (kind === 'rtk' && on) {
+          const bin = own ? (exists(own) ? own : which('rtk')) : exists(ourRtk) ? ourRtk : null;
+          try {
+            const sum = bin && JSON.parse(await run(['gain', '--format', 'json'], bin)).summary;
+            if (sum) Object.assign(s, { saved: sum.total_saved, pct: sum.avg_savings_pct, commands: sum.total_commands });
+          } catch {}
+        }
+        out[kind] = s;
+      }
+      return out;
+    });
+  }
+
+  return {
+    binDir,
+    state,
+    set,
+    /** At a launch: each saver on unless the user turned it off. The user's own is kept current, and the app's goes out
+     *  of its way (both would run). */
+    autoStart() {
+      return serial(async () => {
+        for (const kind of KINDS) {
+          if (!available(kind)) continue;
+          const own = theirs(kind);
+          if (own) {
+            try {
+              await keepCurrent(kind, own);
+              if (installed(kind)) removeOurs(kind);
+            } catch (e) {
+              console.error(`savers: ${kind}:`, e.message);
+            }
+          } else if (decided(kind) !== false && !installed(kind)) {
+            await turn(kind, true);
+          }
+        }
+      });
+    },
+    known: (kind) => KINDS.includes(kind),
+  };
+}
+
+module.exports = { createSavers };

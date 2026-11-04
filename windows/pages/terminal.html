@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Derin Terminal</title>
+<link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
+<link rel="stylesheet" href="terminal.css">
+<link rel="stylesheet" href="mur47.css">
+</head>
+<body>
+<header id="hud">
+  <span id="dot"></span>
+  <b id="title">terminal</b>
+  <span id="status"></span>
+  <span id="where"></span>
+  <button id="dash" type="button" title="Panoya dön (bu çalışmaya devam eder)">pano</button>
+  <button id="end" type="button" title="Bu terminali bitir">bitir</button>
+</header>
+<main id="term"></main>
+<!-- A neon theme's glow on the terminal's canvas (themes.js turns it on): the text's own colours, blurred and screened
+     over it, the dark background left as it is. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="atl-neon" x="-2%" y="-2%" width="104%" height="104%" color-interpolation-filters="sRGB">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="blur"/>
+    <feComponentTransfer in="blur" result="bright">
+      <feFuncR type="gamma" amplitude="1.7" exponent="2"/><feFuncG type="gamma" amplitude="1.7" exponent="2"/><feFuncB type="gamma" amplitude="1.7" exponent="2"/>
+    </feComponentTransfer>
+    <feBlend in="SourceGraphic" in2="bright" mode="screen"/>
+  </filter>
+</svg>
+<script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+<script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+<script src="../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
+<script src="../node_modules/@xterm/addon-unicode11/lib/addon-unicode11.js"></script>
+<script src="../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+<script src="terminal.js"></script>
+</body>
+</html>

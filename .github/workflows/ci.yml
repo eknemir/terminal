@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit tests (Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Built-in runner, no dependencies to install. test:ci fails under the coverage thresholds in package.json.
+      - run: npm test
+      - run: npm run test:ci
+
+  windows-build:
+    name: Windows build (unsigned)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - run: npm ci
+      # rtk (pinned, checksum-checked) goes into vendor/rtk, which electron-builder's extraResources needs.
+      - run: node scripts/fetch-rtk.js
+      # No API key on CI: no src/clientkey.js, so the build runs unsigned (friends/levels off), like any build from source.
+      - run: npx electron-builder --win --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            windows/dist/Terminal-Setup-*.exe
+            windows/dist/Terminal-Setup-*.exe.blockmap
+            windows/dist/latest.yml
+          if-no-files-found: error
+
+  mac-build:
+    name: macOS build (unsigned)
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: app
+    env:
+      # Points build-app.sh at a key file that doesn't exist: the app builds without the API signing key.
+      ATALAY_CLIENT_KEY_FILE: /nonexistent/client-key
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift compiles
+        run: swift build -c release
+      - name: Swift tests
+        run: swift test
+      - name: Build Terminal.app
+        run: ./build-app.sh
+      - name: Zip the app
+        run: ditto -c -k --keepParent build/Terminal.app build/Terminal-app.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: app/build/Terminal-app.zip
+          if-no-files-found: error

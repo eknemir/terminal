@@ -1,0 +1,123 @@
+name: Release
+
+# Push a tag like v0.16.0 to publish:
+#   - a GitHub Release "v0.16.0" (the repo's latest; install.ps1 / install.sh and the README's links read it) with
+#     Terminal-Setup-<version>.exe, latest.yml, Terminal.dmg and SHA256SUMS.txt;
+#   - the Windows update feed: the pre-release "windows" that windows/package.json's publish url points at
+#     (electron-updater's generic provider reads <url>/latest.yml), with the same files windows/scripts/release.js puts
+#     there: latest.yml, Terminal-Setup-<v>.exe(+.blockmap) and Terminal-Setup.exe (the newest under a fixed name).
+# Builds made here carry no API key (it never enters the repository), so they run unsigned.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run test:ci
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - name: Tag matches windows/package.json
+        shell: bash
+        run: |
+          V="$(node -p "require('./package.json').version")"
+          [ "v$V" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME but windows/package.json says $V"; exit 1; }
+      - run: npm ci
+      - run: node scripts/fetch-rtk.js
+      - run: npx electron-builder --win --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            windows/dist/Terminal-Setup-*.exe
+            windows/dist/Terminal-Setup-*.exe.blockmap
+            windows/dist/latest.yml
+          if-no-files-found: error
+
+  mac:
+    needs: test
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: app
+    env:
+      ATALAY_CLIENT_KEY_FILE: /nonexistent/client-key
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+      # Universal (Apple Silicon + Intel) app in a .dmg: build/Terminal <version>.dmg
+      - run: ./scripts/make-dmg.sh
+      - name: Name it Terminal.dmg
+        run: |
+          mkdir -p out
+          mv build/Terminal\ *.dmg out/Terminal.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: app/out/Terminal.dmg
+          if-no-files-found: error
+
+  publish:
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - name: Checksums
+        working-directory: files
+        run: |
+          EXE="$(ls Terminal-Setup-*.exe)"
+          grep -q "^path: $EXE$" latest.yml || { echo "::error::latest.yml doesn't name $EXE"; exit 1; }
+          sha256sum "$EXE" Terminal.dmg latest.yml > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: GitHub Release
+        working-directory: files
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "Terminal $GITHUB_REF_NAME" --generate-notes --latest \
+            Terminal-Setup-*.exe latest.yml Terminal.dmg SHA256SUMS.txt
+      - name: Windows update feed (release "windows")
+        working-directory: files
+        run: |
+          EXE="$(ls Terminal-Setup-*.exe)"
+          cp "$EXE" Terminal-Setup.exe
+          if ! gh release view windows >/dev/null 2>&1; then
+            gh release create windows --title "Terminal for Windows" --prerelease --latest=false --target "$GITHUB_SHA" \
+              --notes "Update feed for installed Windows copies (electron-updater). New users: download Terminal-Setup.exe."
+          fi
+          # latest.yml last, so a copy checking meanwhile never finds a version whose installer isn't there yet.
+          gh release upload windows --clobber "$EXE" "$EXE.blockmap" Terminal-Setup.exe
+          gh release upload windows --clobber latest.yml
+          # Keep the current and the previous version (for the blockmap's parts-only download); older ones go.
+          gh release view windows --json assets -q '.assets[].name' \
+            | grep -E '^Terminal-Setup-[0-9].*\.exe(\.blockmap)?$' \
+            | sed -E 's/^Terminal-Setup-(.+)\.exe(\.blockmap)?$/\1/' | sort -uV | head -n -2 \
+            | while read -r v; do
+                gh release delete-asset windows "Terminal-Setup-$v.exe" -y || true
+                gh release delete-asset windows "Terminal-Setup-$v.exe.blockmap" -y || true
+              done

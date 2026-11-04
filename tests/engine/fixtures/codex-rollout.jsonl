@@ -1,0 +1,10 @@
+{"timestamp":"@-120","type":"session_meta","payload":{"id":"cx-1","cwd":"__CWD__"}}
+{"timestamp":"@-119","type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-5-codex"}}}
+{"timestamp":"@-118","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"@-117","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"input_text","text":"Add a README"}]}}}
+{"timestamp":"@-116","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":12345},"model_context_window":272000}}}
+{"timestamp":"@-115","type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"c1","arguments":"{\"cmd\":\"ls -la\"}"}}
+{"timestamp":"@-114","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"..."}}
+{"timestamp":"@-113","type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"c2","arguments":"{\"command\":[\"bash\",\"-lc\",\"cat README.md\"]}"}}
+garbage line
+{"timestamp":"@-112","type":"response_item","payload":"not an object"}
