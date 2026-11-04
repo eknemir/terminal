@@ -36,3 +36,5 @@ node_modules/
 scratch/
 .scratch/
 Thumbs.db
+
+tests/e2e/out/

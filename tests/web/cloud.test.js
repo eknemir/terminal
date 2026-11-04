@@ -15,7 +15,7 @@ const THEMES_ = {
     { id: 'sun', name: 'Sun', tokens: { '--bg': '#320', '--panel-rgb': '7,8,9', '--accent': '#fd0' } },
   ],
 };
-const THEMES = new Proxy({}, { get: (_, k) => JSON.parse(JSON.stringify(THEMES_))[k] });
+const themesCopy = () => JSON.parse(JSON.stringify(THEMES_));
 const social = () => ({
   me: { id: 'me', name: 'neo', tag: 427, status: 'online' },
   friends: [
@@ -346,7 +346,6 @@ test('settings: rename, app name, logo, model, sound, activity and leaderboard s
   const d = boot({
     cloud: { rename: () => renamed },
     routes: { 'PATCH v1/me/activity': () => ({ ok: true }), 'PATCH v1/me/leaderboard': () => ({ error: 'offline' }) },
-    globals: { ChatModel: { ALL: ['default', 'opus'], LABELS: { default: 'Varsayılan', opus: 'Opus' }, get: () => 'opus', set: (m) => (d.model = m) } },
   });
   t.after(d.close);
   await d.flush();
@@ -378,10 +377,14 @@ test('settings: rename, app name, logo, model, sound, activity and leaderboard s
   d.fire(an, 'keydown', { key: 'Enter' });
   // model
   const cm = root.querySelector('.cm-select');
-  assert.equal(cm.value, 'opus');
-  cm.value = 'default';
+  const CM = d.window.ChatModel;
+  assert.equal(cm.value, CM.get());
+  assert.equal(cm.options.length, CM.ALL.length);
+  const other = CM.ALL.find((m) => m !== CM.get());
+  cm.value = other;
   d.fire(cm, 'change');
-  assert.equal(d.model, 'default');
+  assert.equal(CM.get(), other);
+  assert.equal(d.sent('chatModel', 'radar').at(-1).model, other);
   // logo select
   const al = root.querySelector('.al-select');
   assert.equal(al.value, 'default');
@@ -450,15 +453,13 @@ test('settings: accent swatches, info rows and update buttons', async (t) => {
   const info = root.querySelector('.hk-info');
   assert.match(info.textContent, /1\.0\.0/);
   assert.match(info.textContent, /3\.0\.0 çıktı · indiriliyor 50% · o zamana dek XP duraklatıldı/);
-  info.querySelector('.hk-check').click();
-  await d.flush();
-  assert.ok(d.st.calls.includes('checkUpdate'));
+  const now = root.querySelector('.hk-now');
   info.querySelector('.hk-sw.upd').click();
   await d.flush();
   assert.equal(d.posted.find((m) => m.type === 'updateRightAway').on, true);
-  // "update now" opens what's new over the menu? No: the menu is a modal, so it stays.
-  root.querySelector('.hk-now').click();
-  assert.ok(root.querySelector('.menu'));
+  root.querySelector('.hk-check').click();
+  await d.flush();
+  assert.ok(d.st.calls.includes('checkUpdate'));
   d.window.Cloud.render(cloudState({ checking: true }));
   assert.match(root.querySelector('.hk-info').textContent, /denetleniyor/);
   assert.ok(root.querySelector('.hk-check').disabled);
@@ -468,6 +469,11 @@ test('settings: accent swatches, info rows and update buttons', async (t) => {
   assert.match(root.querySelector('.hk-info').textContent, /installing/);
   d.window.Cloud.render(cloudState({ update: { version: '3' }, updateReady: true }));
   assert.match(root.querySelector('.hk-info').textContent, /hazır · sen uzaktayken kurulur/);
+  // "update now" swaps the menu for what's new
+  root.querySelector('.hk-now').click();
+  assert.ok(root.querySelector('.upd'));
+  assert.equal(root.querySelector('.menu'), null);
+  assert.ok(now);
 });
 
 test('settings with the theme, savers, archive and keys bridges', async (t) => {
@@ -477,7 +483,7 @@ test('settings with the theme, savers, archive and keys bridges', async (t) => {
   let keys = { shortcuts: [{ id: 'shortcutsWheel', label: '⌃ Middle', changed: true }, { id: 'newChat', group: 'Chats', title: 'New chat', label: '⌘N', changed: true }, { id: 'close', group: 'Chats', title: 'Close', label: '' }] };
   const d = boot({
     bridges: {
-      theme: (m) => (m.type === 'list' ? THEMES : m.type === 'ui' ? ui : m.type === 'setUI' ? { ...ui, ...m, type: undefined } : {}),
+      theme: (m) => (m.type === 'list' ? themesCopy() : m.type === 'ui' ? ui : m.type === 'setUI' ? { ...ui, ...m, type: undefined } : {}),
       savers: (m) => (m.type === 'state' ? savers : { ...savers, caveman: { on: m.on, available: true } }),
       archive: (m) => (m.type === 'list' ? { folders } : ((folders = []), { folders })),
       keys: (m) => (m.type === 'record' ? { combo: 'cmd+k' } : m.type === 'set' ? (m.id === 'close' ? { error: 'taken' } : keys) : keys),
@@ -494,7 +500,7 @@ test('settings with the theme, savers, archive and keys bridges', async (t) => {
   assert.equal(sel.value, 'atalay');
   sel.value = 'sea';
   d.fire(sel, 'change');
-  assert.equal(d.posted.filter((m) => m.h === 'theme' && m.type === 'choose').at(-1).id, 'sea');
+  assert.equal(d.posted.filter((m) => m.via === 'theme' && m.type === 'choose').at(-1).id, 'sea');
   // fonts and scales
   assert.equal(root.querySelector('.ui-font button.on').textContent, 'Mono');
   assert.deepEqual([...root.querySelectorAll('.ui-scale button')].map((b) => b.textContent), ['100%', '125%']);
@@ -513,7 +519,7 @@ test('settings with the theme, savers, archive and keys bridges', async (t) => {
   assert.match(root.querySelector('.ts-note[data-which="caveman"]').textContent, /kapalı · tam uzunlukta/);
   d.click(root.querySelector('.hk-sw.ts[data-which="caveman"]'));
   await d.flush();
-  assert.equal(d.posted.filter((m) => m.h === 'savers' && m.type === 'set').at(-1).on, true);
+  assert.equal(d.posted.filter((m) => m.via === 'savers' && m.type === 'set').at(-1).on, true);
   assert.match(root.querySelector('.ts-note[data-which="caveman"]').textContent, /açık · yaklaşık üçte iki/);
   // archive
   d.click(root.querySelector('.arc-open'));
@@ -524,7 +530,7 @@ test('settings with the theme, savers, archive and keys bridges', async (t) => {
   assert.equal(arc.querySelectorAll('.arc-c span')[1].textContent, 'adsız');
   d.click(arc.querySelector('[data-act="all"]'));
   await d.flush();
-  assert.equal(d.posted.filter((m) => m.h === 'archive').at(-1).type, 'restoreAll');
+  assert.equal(d.posted.filter((m) => m.via === 'archive').at(-1).type, 'restoreAll');
   assert.match(arc.textContent, /arşivde bir şey yok/);
   // Escape closes only the archive
   d.key('Escape');
@@ -542,24 +548,25 @@ test('settings with the theme, savers, archive and keys bridges', async (t) => {
   assert.ok(page.querySelector('.ks-all'));
   d.click(page.querySelector('.ks-key[data-id="newChat"]'));
   await d.flush();
-  assert.deepEqual(d.posted.filter((m) => m.h === 'keys').slice(-2).map((m) => m.type), ['record', 'set']);
+  assert.deepEqual(d.posted.filter((m) => m.via === 'keys').slice(-2).map((m) => m.type), ['record', 'set']);
   d.click(page.querySelector('.ks-key[data-id="close"]'));
   await d.flush();
   assert.equal(page.querySelector('.ks-msg').textContent, 'taken');
   d.click(page.querySelector('.ks-undo[data-id="newChat"]'));
   await d.flush();
-  assert.equal(d.posted.filter((m) => m.h === 'keys').at(-1).type, 'reset');
-  assert.equal(d.posted.filter((m) => m.h === 'keys').at(-1).id, 'newChat');
+  assert.equal(d.posted.filter((m) => m.via === 'keys').at(-1).type, 'reset');
+  assert.equal(d.posted.filter((m) => m.via === 'keys').at(-1).id, 'newChat');
   d.click(page.querySelector('.ks-all'));
   await d.flush();
-  assert.equal(d.posted.filter((m) => m.h === 'keys').at(-1).id, '');
+  assert.equal(d.posted.filter((m) => m.via === 'keys').at(-1).id, '');
 });
 
 test('friends view: list, requests, counts, actions, context menu, profile card', async (t) => {
   const d = boot({
     git: true,
     routes: {
-      'POST v1/friends/requests/r1/accept': () => ({ friend: { id: 'u9', name: 'Cy', tag: 9 } }),
+      // presence given: without it the list breaks (cloud.js:840, see the BUG test)
+      'POST v1/friends/requests/r1/accept': () => ({ friend: { id: 'u9', name: 'Cy', tag: 9, presence: 'online' } }),
       'DELETE v1/friends/requests/o1': () => ({ error: 'offline' }),
       'DELETE v1/friends/f2': () => ({ ok: true }),
       'POST v1/friends/requests': (b) => (b.handle === 'bad#1' ? { error: 'not_found' } : { request: { id: 'o2', to: { name: 'Zed', tag: 77 } } }),
@@ -687,7 +694,7 @@ test('friends view: no friends yet shows your tag', async (t) => {
 
 test('leaderboard: rows, anonymous, you below the list, a card in their theme, adding', async (t) => {
   const d = boot({
-    bridges: { theme: (m) => (m.type === 'list' ? JSON.parse(JSON.stringify(THEMES)) : {}) },
+    bridges: { theme: (m) => (m.type === 'list' ? themesCopy() : {}) },
     routes: { 'POST v1/friends/requests': () => ({ request: { id: 'o9', to: {} } }) },
   });
   t.after(d.close);
@@ -726,7 +733,7 @@ test('leaderboard: rows, anonymous, you below the list, a card in their theme, a
   d.click(host.querySelector('[data-ans="theme"]'));
   await d.flush();
   assert.equal(toastText(d), 'your theme is Sea now');
-  assert.equal(d.posted.filter((m) => m.h === 'theme' && m.type === 'choose').at(-1).id, 'sea');
+  assert.equal(d.posted.filter((m) => m.via === 'theme' && m.type === 'choose').at(-1).id, 'sea');
   assert.match(host.querySelector('.pf-theme').textContent, /you use it too/);
   // add someone from their card
   d.click(host.querySelector('[data-ans="add"]'));
@@ -783,7 +790,7 @@ test('leaderboard: adding fails with a known error, or they were already friends
 });
 
 test('leaderboard switch: hiding your name reloads the board', async (t) => {
-  const d = boot({ routes: { 'PATCH v1/me/leaderboard': () => ({ ok: true }) } });
+  const d = boot({ routes: { 'PATCH v1/me/leaderboard': () => ({ ok: true }) }, bridges: { theme: () => null } });
   t.after(d.close);
   await d.flush();
   d.window.Cloud.showView('board');
@@ -796,7 +803,7 @@ test('leaderboard switch: hiding your name reloads the board', async (t) => {
 });
 
 test('themes view: cards, preview on hover, keep on click, arrow keys, revert on leave', async (t) => {
-  const d = boot({ bridges: { theme: (m) => (m.type === 'list' ? THEMES : {}) } });
+  const d = boot({ bridges: { theme: (m) => (m.type === 'list' ? themesCopy() : {}) } });
   t.after(d.close);
   await d.flush();
   d.window.Cloud.showView('themes');
@@ -807,7 +814,7 @@ test('themes view: cards, preview on hover, keep on click, arrow keys, revert on
   assert.ok(cards[0].classList.contains('on'));
   assert.equal(cards[0].querySelector('.th-name em').textContent, 'ACTIVE');
   assert.equal(cards[0].querySelectorAll('.th-pal i').length, 16);
-  const themeMsgs = () => d.posted.filter((m) => m.h === 'theme' && m.type !== 'list').map((m) => [m.type, m.id]);
+  const themeMsgs = () => d.posted.filter((m) => m.via === 'theme' && m.type !== 'list').map((m) => [m.type, m.id]);
   cards[1].onmouseenter();
   d.tick(100);
   assert.deepEqual(themeMsgs().at(-1), ['preview', 'sea']);

@@ -74,6 +74,40 @@ export class LineSegments extends Object3D { constructor(g, m) { super(); this.g
 export class Sprite extends Object3D { constructor(m) { super(); this.material = m; } }
 export class Mesh extends Object3D { constructor(g, m) { super(); this.geometry = g; this.material = m; } }
 
+// ---- for models.js: geometries record their constructor args and transforms, materials their options ----
+export class Quaternion {
+  constructor() { this.x = 0; this.y = 0; this.z = 0; this.w = 1; }
+  setFromUnitVectors(from, to) { this.from = from.clone(); this.to = to.clone(); return this; }
+}
+Object3D.prototype.lookAt = function (x, y, z) { this.lookingAt = new Vector3(x, y, z); };
+Object.defineProperty(Object3D.prototype, 'quaternion', {
+  get() { return this._q || (this._q = new Quaternion()); },
+  configurable: true,
+});
+BufferGeometry.prototype.rotateX = function (a) { (this.rotations ||= []).push(['x', a]); return this; };
+BufferGeometry.prototype.rotateZ = function (a) { (this.rotations ||= []).push(['z', a]); return this; };
+BufferGeometry.prototype.toNonIndexed = function () { const g = Object.create(Object.getPrototypeOf(this)); Object.assign(g, this, { index: null, nonIndexed: true }); return g; };
+// Boxes come indexed, cylinders not, so both paths of models.js's mergeGeometries prep run.
+const shape = (type, indexed = true) => class extends BufferGeometry {
+  constructor(...args) { super(); this.type = type; this.args = args; this.index = indexed ? { count: 1 } : null; }
+};
+export const CylinderGeometry = shape('Cylinder', false);
+export const BoxGeometry = shape('Box');
+export const OctahedronGeometry = shape('Octahedron');
+export const TorusGeometry = shape('Torus');
+export const SphereGeometry = shape('Sphere');
+export class EdgesGeometry extends BufferGeometry {
+  constructor(source, angle) { super(); this.source = source; this.angle = angle; }
+}
+export class MeshStandardMaterial extends Material {}
+export class MeshPhysicalMaterial extends Material {}
+export class MeshBasicMaterial extends Material {}
+export class LineBasicMaterial extends Material {}
+export class Scene extends Object3D {}
+// three/addons/utils/BufferGeometryUtils.js
+export function mergeGeometries(parts) { const g = new BufferGeometry(); g.merged = parts; return g; }
+export function toCreasedNormals(g, angle) { g.creaseAngle = angle; return g; }
+
 export class CanvasTexture {
   constructor(image) { this.image = image; this.needsUpdate = false; }
   dispose() { this.disposed = true; }

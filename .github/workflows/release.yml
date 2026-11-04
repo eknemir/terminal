@@ -23,6 +23,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
       - run: npm run test:ci
 
   windows:
@@ -57,7 +60,7 @@ jobs:
 
   mac:
     needs: test
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: app
@@ -65,6 +68,20 @@ jobs:
       ATALAY_CLIENT_KEY_FILE: /nonexistent/client-key
     steps:
       - uses: actions/checkout@v4
+      - name: Select newest Xcode (SwiftTerm needs Swift >= 6.2)
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app || true
+          PICK=""
+          for x in $(ls -d /Applications/Xcode_26*.app /Applications/Xcode*.app 2>/dev/null | sort -rV | uniq); do
+            V="$(DEVELOPER_DIR="$x/Contents/Developer" xcrun swift --version 2>/dev/null | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+).*/\1/p' | head -n1)"
+            echo "$x -> Swift ${V:-?}"
+            if [ -n "$V" ] && [ "$(printf '%s\n6.2\n' "$V" | sort -V | head -n1)" = "6.2" ]; then PICK="$x"; break; fi
+          done
+          [ -n "$PICK" ] || { echo "::error::no Xcode with Swift >= 6.2 on this runner"; exit 1; }
+          sudo xcode-select -s "$PICK/Contents/Developer"
+          xcodebuild -version
+          swift --version
       - run: swift test
       # Universal (Apple Silicon + Intel) app in a .dmg: build/Terminal <version>.dmg
       - run: ./scripts/make-dmg.sh

@@ -82,6 +82,12 @@ function makeDom(opts = {}) {
   w.Element.prototype.scrollIntoView = function () {};
   w.Element.prototype.animate = function () { return { cancel() {}, finished: Promise.resolve() }; };
   if (!w.document.hasFocus) w.document.hasFocus = () => true;
+  // A 2D context that draws nothing (and records which calls were made).
+  const drawn = [];
+  w.HTMLCanvasElement.prototype.getContext = function () {
+    const canvas = this;
+    return new Proxy({ canvas }, { get: (o, k) => (k in o ? o[k] : (...a) => { drawn.push(k); return { addColorStop() {}, loseContext() {} }; }), set: (o, k, v) => ((o[k] = v), true) });
+  };
   const audio = [];
   w.AudioContext = class {
     constructor() { this.state = 'running'; this.currentTime = 0; this.destination = {}; audio.push(this); this.made = []; }
@@ -106,7 +112,7 @@ function makeDom(opts = {}) {
           // Copied out of the page's realm so tests can deepEqual it.
           let plain;
           try { plain = JSON.parse(JSON.stringify(msg)); } catch { plain = msg; }
-          posted.push({ h: name, ...plain });
+          posted.push({ ...plain, via: name });
           const r = reply[name];
           try {
             return w.Promise.resolve(typeof r === 'function' ? r(plain) : r);
@@ -157,13 +163,13 @@ function makeDom(opts = {}) {
   const flush = async (n = 6) => {
     for (let i = 0; i < n; i++) await new Promise((r) => setImmediate(r));
   };
-  const sent = (type, h) => posted.filter((m) => m.type === type && (!h || m.h === h));
+  const sent = (type, h) => posted.filter((m) => m.type === type && (!h || m.via === h));
   const close = () => {
     timers.clear();
     w.close();
   };
 
-  const api = { dom, window: w, document: w.document, run, ev, $, $$, click, fire, key, type, flush, tick, posted, sent, observers, audio, errors, close, timers, now: () => now };
+  const api = { dom, window: w, document: w.document, run, ev, $, $$, click, fire, key, type, flush, tick, posted, sent, observers, audio, drawn, errors, close, timers, now: () => now };
   return api;
 }
 

@@ -22,9 +22,30 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # Built-in runner, no dependencies to install. test:ci fails under the coverage thresholds in package.json.
+          cache: npm
+          cache-dependency-path: package-lock.json
+      # Root devDependencies (jsdom) for the DOM tests. test:ci fails under the coverage thresholds in package.json.
+      - run: npm ci
       - run: npm test
       - run: npm run test:ci
+
+  orbit-bundle:
+    name: Orbit bundle is up to date
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/orbit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/orbit/package-lock.json
+      - run: npm ci
+      # app/Resources/web/orbit.js is built from app/orbit and committed; fail if it wasn't rebuilt after a source change.
+      - run: npm run build
+      - run: git diff --exit-code --stat -- ../Resources/web/orbit.js
 
   windows-build:
     name: Windows build (unsigned)
@@ -55,7 +76,7 @@ jobs:
 
   mac-build:
     name: macOS build (unsigned)
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: app
@@ -64,6 +85,20 @@ jobs:
       ATALAY_CLIENT_KEY_FILE: /nonexistent/client-key
     steps:
       - uses: actions/checkout@v4
+      - name: Select newest Xcode (SwiftTerm needs Swift >= 6.2)
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app || true
+          PICK=""
+          for x in $(ls -d /Applications/Xcode_26*.app /Applications/Xcode*.app 2>/dev/null | sort -rV | uniq); do
+            V="$(DEVELOPER_DIR="$x/Contents/Developer" xcrun swift --version 2>/dev/null | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+).*/\1/p' | head -n1)"
+            echo "$x -> Swift ${V:-?}"
+            if [ -n "$V" ] && [ "$(printf '%s\n6.2\n' "$V" | sort -V | head -n1)" = "6.2" ]; then PICK="$x"; break; fi
+          done
+          [ -n "$PICK" ] || { echo "::error::no Xcode with Swift >= 6.2 on this runner"; exit 1; }
+          sudo xcode-select -s "$PICK/Contents/Developer"
+          xcodebuild -version
+          swift --version
       - name: Swift compiles
         run: swift build -c release
       - name: Swift tests

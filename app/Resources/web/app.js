@@ -257,6 +257,10 @@ const radarPost = (msg) => {
   }
 };
 window.DT = {
+  // The chat tab in front (chattabs.js): prompts go there; a plain terminal (no session) leaves it to the app's last.
+  focusChat(sid) {
+    lastSid = sid || null;
+  },
   newChatWithPrompt(text) {
     return radarPost({ type: 'newChatWithText', text: String(text || '') });
   },

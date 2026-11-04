@@ -320,6 +320,8 @@ window.Cloud = (() => {
               <div class="st-head"><b>Claude</b><small>Yeni Claude sohbetlerinin nasıl başlayacağı.</small></div>
               <div class="hk-row hk-chatmodel"><span>Model<small>Yeni sohbetler bu modelle başlar · Varsayılan = Claude'un kendi seçimi · devam ettirilen sohbetler kendi modelini korur</small></span>
                 <label class="hk-field st-select"><select class="hk-input cm-select" title="Claude modeli">${(window.ChatModel ? window.ChatModel.ALL : []).map((m) => `<option value="${m}">${window.ChatModel.LABELS[m]}</option>`).join('')}</select></label></div>
+              ${window.__chatTabs && window.__platform === 'win32' ? `<div class="hk-row"><span>Sohbetleri ana pencerede aç<small>Kapalıysa her sohbet kendi penceresinde açılır · sekmeye sağ tık = ayrı pencerede aç</small></span>
+                <button type="button" class="hk-sw embedchats" role="switch" aria-checked="false" title="Sohbetleri ana pencerede sekme olarak aç"><i></i></button></div>` : ''}
             </div>
 
             <div class="st-sec">
@@ -397,6 +399,15 @@ window.Cloud = (() => {
     wireAccent(settings);
     wireThemeSelect(settings);
     wireSound(settings);
+    {
+      const sw = settings.querySelector('.hk-sw.embedchats');
+      if (sw) {
+        const paint = () => { const v = !!window.__chatTabs.state.embed; sw.classList.toggle('on', v); sw.setAttribute('aria-checked', String(v)); };
+        sw.onclick = () => window.__chatTabs.setEmbed(!window.__chatTabs.state.embed);
+        document.addEventListener('chattabs', paint);
+        paint();
+      }
+    }
     const ok = q('.mn-save');
     const f = nameField(settings, own, (ready) => (ok.disabled = !ready));
     const submit = submitter('rename', f, ok, (name) => {

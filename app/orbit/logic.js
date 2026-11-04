@@ -88,7 +88,9 @@ export function assignParking(sessions, ships, slotOwner, homeSlot) {
     const open = (k) => !slotOwner[k] && !reserved.has(k);
     const i = order.find(open);
     if (i !== undefined) return i;
-    for (let k = 0; ; k++) if (open(k)) return k;
+    let k = 0;
+    while (!open(k)) k++;
+    return k;
   };
   for (const [list, order] of [[parkedSessions, []], [cars, CAR_SLOTS]]) {
     for (const o of list) {

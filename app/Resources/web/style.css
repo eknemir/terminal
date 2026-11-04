@@ -104,7 +104,7 @@ body::after {
   height: 100vh;
   padding: 8px;
   gap: 8px;
-  grid-template-columns: 48px minmax(250px, 21%) minmax(0, 1fr) 380px;
+  grid-template-columns: 48px minmax(250px, 21%) minmax(0, 1fr) var(--studio-w, 380px);
   grid-template-rows: auto minmax(0, 1fr) minmax(176px, 27vh) 22px;
 }
 
@@ -442,7 +442,7 @@ body::after {
 @media (max-width: 1250px) {
   .marquee, .kpi:nth-child(7), .kpi:nth-child(8) { display: none; }
   /* The left edge's activity bar keeps its column (48px), as in the full layout. */
-  #app { grid-template-columns: 48px minmax(230px, 26%) minmax(0, 1fr) 320px; }
+  #app { grid-template-columns: 48px minmax(230px, 26%) minmax(0, 1fr) var(--studio-w, 320px); }
 }
 @media (max-width: 920px) {
   body { overflow: auto; }

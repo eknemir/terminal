@@ -473,7 +473,7 @@ test('DT: prompts go to the last chat opened, else a new chat', async (t) => {
   t.after(d.close);
   const r = await d.window.DT.sendPrompt('hi', { submit: false });
   assert.deepEqual({ ...r }, { ok: true });
-  assert.deepEqual(d.sent('sendText')[0], { h: 'radar', type: 'sendText', sid: null, text: 'hi', submit: false });
+  assert.deepEqual(d.sent('sendText')[0], { type: 'sendText', sid: null, text: 'hi', submit: false, via: 'radar' });
   assert.deepEqual(d.sent('newChatWithText')[0].text, 'hi');
   // after a card click the session is remembered
   d.window.__radar.init({ state: state(), log: [] });
