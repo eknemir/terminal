@@ -170,9 +170,11 @@ test('heartbeat: offline -> unreachable; 401 -> token dropped and identify; unex
   const d = dir();
   fs.writeFileSync(tokenFile(d), 'old\n');
   let mode = 'offline';
+  let ids = 0;
   const { c, a } = make({
-    'POST v1/heartbeat': () => (mode === 'offline' ? [503, 'down'] : mode === '401' ? [401, { error: 'bad_token' }] : [200, { hackerName: 1 }]),
-    'POST v1/devices/identify': [200, { known: true, token: 'new' }],
+    'POST v1/heartbeat': (b, { opts }) => (mode === 'offline' ? [503, 'down'] : mode === '401' && opts.headers.authorization === 'Bearer old' ? [401, { error: 'bad_token' }]
+      : mode === '401' ? [200, { hackerName: 'back', tag: 2, online: 1 }] : [200, { hackerName: 1 }]),
+    'POST v1/devices/identify': () => { ids++; return [200, { known: true, token: 'new' }]; },
   }, { dataDir: d });
   await c.handle({ type: 'checkUpdate' });
   assert.equal(c.json().reachable, false);
@@ -183,8 +185,22 @@ test('heartbeat: offline -> unreachable; 401 -> token dropped and identify; unex
   assert.equal(c.json().reachable, false);
   mode = '401';
   await quiet(() => c.handle({ type: 'checkUpdate' }));
-  // identify gave a new token, whose heartbeat 401s again... and the token file changes
-  assert.ok(a.calls.some((x) => x.key === 'POST v1/devices/identify'));
+  assert.equal(ids, 1);
+  assert.equal(fs.readFileSync(tokenFile(d), 'utf8'), 'new');
+  assert.equal(c.json().hackerName, 'back');
+  assert.deepEqual(a.calls.map((x) => x.key).slice(-3), ['POST v1/heartbeat', 'POST v1/devices/identify', 'POST v1/heartbeat']);
+});
+
+test('a fresh token the heartbeat also refuses is not retried without end', { todo: 'cloud.js:311-315 + 348-350: heartbeat 401 -> identify -> heartbeat 401 … loops with no limit or backoff' }, async () => {
+  const d = dir();
+  fs.writeFileSync(tokenFile(d), 'old');
+  let ids = 0;
+  const { c } = make({
+    'POST v1/heartbeat': [401, {}],
+    'POST v1/devices/identify': () => (++ids > 50 ? [500, {}] : [200, { known: true, token: 'new' }]), // the guard stops the loop here
+  }, { dataDir: d });
+  await quiet(() => c.handle({ type: 'checkUpdate' }));
+  assert.ok(ids <= 2, `identify called ${ids} times in one heartbeat`);
 });
 
 test('identify: known with token signs in; failure unreachable; a name picked offline registers', async () => {

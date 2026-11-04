@@ -34,9 +34,10 @@ test('tokenCount: units, shorthand and rejects', () => {
   for (const bad of ['auto', '', 'k', 'm', '-5', '0', 'abc', '1e']) assert.equal(T.tokenCount(bad), null, bad);
 });
 
-test('tokenCount quirk: the "x1000 shorthand" also applies after a unit ("5k" -> 5M) [reported bug]', () => {
-  // "5k" is 5,000 tokens, under 10,000, so it is multiplied again. Documents current behaviour.
-  assert.equal(T.tokenCount('5k'), 5_000_000);
+test('tokenCount: the "x1000 shorthand" applies only without a unit', () => {
+  assert.equal(T.tokenCount('5k'), 5_000);
+  assert.equal(T.tokenCount('0.005m'), 5_000);
+  assert.equal(T.tokenCount('5'), 5_000);
 });
 
 test('compactSetting: numbers, strings, invalid files, 5 s cache', () => {
@@ -56,9 +57,9 @@ test('compactSetting: numbers, strings, invalid files, 5 s cache', () => {
     assert.equal(T.compactSetting(g), 100_000);
     fs.writeFileSync(g, JSON.stringify({ autoCompactWindow: 900 }));
     assert.equal(T.compactSetting(g), 100_000);
-    // Numeric 0 / negative values are not rejected as the string path does [reported bug].
-    assert.equal(T.compactSetting(f('z.json', { autoCompactWindow: 0 })), 0);
-    assert.equal(T.compactSetting(f('n.json', { autoCompactWindow: -5 })), -5000);
+    // Numeric 0 / negative values are rejected like the string path.
+    assert.equal(T.compactSetting(f('z.json', { autoCompactWindow: 0 })), null);
+    assert.equal(T.compactSetting(f('n.json', { autoCompactWindow: -5 })), null);
   } finally {
     cleanup();
   }
@@ -300,6 +301,7 @@ test('parseISO and dayStart', () => {
   assert.equal(T.parseISO('2026-10-24T19:41:07.123Z'), Date.UTC(2026, 9, 24, 19, 41, 7) + 123);
   assert.equal(T.parseISO('2026-10-24T19:41:07Z'), Date.UTC(2026, 9, 24, 19, 41, 7));
   assert.equal(T.parseISO('2026-10-24T19:41:07.5Z'), Date.UTC(2026, 9, 24, 19, 41, 7) + 500);
+  assert.equal(T.parseISO('2026-10-24T19:41:07.123456789Z'), Date.UTC(2026, 9, 24, 19, 41, 7) + 123); // truncated to ms
   assert.equal(T.parseISO('2026-10-24T19:41:07+03:00'), Date.UTC(2026, 9, 24, 19, 41, 7)); // offset ignored (as the Mac)
   assert.equal(T.parseISO('2026-10-24'), 0);
   assert.equal(T.parseISO('xxxx-xx-xxTxx:xx:xxZ'), 0);
@@ -353,9 +355,13 @@ test('skipped, withoutImages, parseLine', () => {
   // Only the first 600 bytes are looked at.
   const late = b(`{"pad":"${'x'.repeat(700)}","type":"attachment"}`);
   assert.equal(T.skipped(late, 0, late.length), false);
-  // A nested object whose own "type" is a skipped one, early in the line, drops the whole record [reported quirk].
+  // A nested "type" that is a skipped one does not drop the record; only the top-level type counts.
   const nested = b('{"type":"assistant","message":{"content":[{"type":"tool_use","input":{"type":"progress"}}]}}');
-  assert.equal(T.skipped(nested, 0, nested.length), true);
+  assert.equal(T.skipped(nested, 0, nested.length), false);
+  const nestedFirst = b('{"data":{"type":"progress"},"msg":"a\\"b","type":"progress"}');
+  assert.equal(T.skipped(nestedFirst, 0, nestedFirst.length), true);
+  const valueOnly = b('{"note":"\\"type\\":\\"progress\\"","type":"user"}');
+  assert.equal(T.skipped(valueOnly, 0, valueOnly.length), false);
 
   const big = 'A'.repeat(2000);
   assert.equal(T.withoutImages(b(`{"a":{"data":"${big}"},"b":{"data":"small"}}`)).toString(), '{"a":{"data":""},"b":{"data":"small"}}');

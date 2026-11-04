@@ -354,7 +354,7 @@ final class RadarEngine {
             let r = int(u["cache_read_input_tokens"]), w = int(u["cache_creation_input_tokens"])
             if A == nil {
                 S.ctx = i + r + w
-                S.ctxMax = contextLimit(model, cwd: S.cwd)
+                S.ctxMax = contextLimit(model ?? S.model, cwd: S.cwd)
             }
             if today {
                 let c = costOf(model, u)
@@ -634,6 +634,57 @@ final class RadarEngine {
     private static let skipTypes: [Data] = ["attachment", "file-history-snapshot", "progress", "queue-operation", "permission-mode", "atis-latch"]
         .map { Data("\"type\":\"\($0)\"".utf8) }
 
+    private static let skipNames: Set<String> = ["attachment", "file-history-snapshot", "progress", "queue-operation", "permission-mode", "atis-latch"]
+
+    /// True when the line's own top-level "type" is a skipped one (a nested "type" does not count).
+    private static func skipped(_ head: Data) -> Bool {
+        guard skipTypes.contains(where: { head.range(of: $0) != nil }) else { return false }
+        guard let top = topLevelType(head) else { return false }
+        return skipNames.contains(top)
+    }
+
+    /// The string value of the top-level "type" key within `head`, or nil if not found there.
+    private static func topLevelType(_ head: Data) -> String? {
+        let b = [UInt8](head)
+        var depth = 0, inStr = false, strStart = 0, expectValue = false
+        var lastKey: String?
+        var k = 0
+        while k < b.count {
+            let c = b[k]
+            if inStr {
+                if c == 0x5C {
+                    k += 1
+                } else if c == 0x22 {
+                    inStr = false
+                    if depth == 1 {
+                        let s = String(decoding: b[strStart..<k], as: UTF8.self)
+                        if expectValue {
+                            if lastKey == "type" { return s }
+                            expectValue = false
+                        } else {
+                            lastKey = s
+                        }
+                    }
+                }
+            } else if c == 0x22 {
+                inStr = true
+                strStart = k + 1
+            } else if c == 0x7B || c == 0x5B {
+                depth += 1
+                expectValue = false
+            } else if c == 0x7D || c == 0x5D {
+                depth -= 1
+            } else if c == 0x3A, depth == 1 {
+                expectValue = true
+            } else if c == 0x2C, depth == 1 {
+                expectValue = false
+                lastKey = nil
+            }
+            k += 1
+        }
+        return nil
+    }
+
     private static let dataKey = Array("\"data\":\"".utf8)
 
     /// Screenshots sit in transcripts as base64 (86% of a busy day's bytes) and nothing here reads them, so
@@ -707,7 +758,7 @@ final class RadarEngine {
                     if nl > off {
                         let line = Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: base + off), count: nl - off, deallocator: .none)
                         let head = line.prefix(600)
-                        if !Self.skipTypes.contains(where: { head.range(of: $0) != nil }),
+                        if !Self.skipped(head),
                            let rec = try? JSONSerialization.jsonObject(with: Self.withoutImages(line)) as? [String: Any] {
                             ingest(rec, c)
                         }

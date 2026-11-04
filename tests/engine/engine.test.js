@@ -305,7 +305,7 @@ test('ingest: usage counted once per message id; context; branch; effort; old re
   }
 });
 
-test('ingest: a usage record without a model resets the context window to 0 [reported bug]', () => {
+test('ingest: a usage record without a model keeps the session model\'s context window', () => {
   const h = setup();
   try {
     h.e.ingest(rec('assistant', { message: { id: 'a', model: 'claude-opus-4-1', usage: { input_tokens: 1 }, content: [] } }), cursor());
@@ -313,7 +313,7 @@ test('ingest: a usage record without a model resets the context window to 0 [rep
     assert.equal(S.ctxMax, 1e6);
     h.e.ingest(rec('assistant', { message: { id: 'b', usage: { input_tokens: 1 }, content: [] } }), cursor());
     assert.equal(S.model, 'claude-opus-4-1'); // the model is kept...
-    assert.equal(S.ctxMax, 0); // ...but the window is computed from the record's (missing) model
+    assert.equal(S.ctxMax, 1e6); // ...and the window comes from the session's model
     assert.equal(h.e.G.byModel.get('?').priced, false);
   } finally {
     h.done();

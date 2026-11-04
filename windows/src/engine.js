@@ -81,7 +81,7 @@ function compactSetting(file) {
   let value = null;
   try {
     const v = JSON.parse(fs.readFileSync(file, 'utf8'))?.autoCompactWindow;
-    if (typeof v === 'number') value = v < 10_000 ? v * 1000 : v;
+    if (typeof v === 'number') value = v > 0 ? (v < 10_000 ? v * 1000 : v) : null;
     else if (typeof v === 'string') value = tokenCount(v);
   } catch {}
   compactCache.set(file, { value, at: now });
@@ -96,7 +96,7 @@ function tokenCount(text) {
   const n = raw === '' ? NaN : Number(raw);
   if (!(n > 0)) return null;
   const tokens = n * unit;
-  return tokens < 10_000 ? tokens * 1000 : tokens;
+  return unit === 1 && tokens < 10_000 ? tokens * 1000 : tokens;
 }
 
 function costOf(model, u) {
@@ -362,11 +362,15 @@ function readNewLines(O) {
   if (st.size <= (O.logOffset || 0)) return [];
   const from = Math.max(O.logOffset || 0, st.size > 2 << 20 ? st.size - (2 << 20) : 0);
   const buf = Buffer.alloc(st.size - from);
-  const fd = fs.openSync(O.log, 'r');
   try {
-    fs.readSync(fd, buf, 0, buf.length, from);
-  } finally {
-    fs.closeSync(fd);
+    const fd = fs.openSync(O.log, 'r');
+    try {
+      fs.readSync(fd, buf, 0, buf.length, from);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return [];
   }
   const end = buf.lastIndexOf(0x0a);
   if (end < 0) return [];
@@ -602,7 +606,7 @@ function parseISO(s) {
   let ms = 0;
   if (s.length > 20 && s[19] === '.') {
     let scale = 100;
-    for (let k = 20; k < s.length; k++) {
+    for (let k = 20; k < Math.min(s.length, 23); k++) {
       const d = s.charCodeAt(k) - 48;
       if (d < 0 || d > 9) break;
       ms += d * scale;
@@ -739,7 +743,47 @@ const LAST_PROMPT = Buffer.from('"type":"last-prompt"');
 
 function skipped(data, off, end) {
   const head = data.subarray(off, Math.min(end, off + 600));
-  return SKIP_TYPES.some((t) => head.indexOf(t) !== -1);
+  if (!SKIP_TYPES.some((t) => head.indexOf(t) !== -1)) return false;
+  // The cheap check hit: only skip when the hit is the record's own top-level "type", not a nested one.
+  const top = topLevelType(head);
+  return top !== null && SKIP_NAMES.has(top);
+}
+
+const SKIP_NAMES = new Set(SKIP_TYPES.map((b) => b.toString().slice(8, -1)));
+
+// The string value of the top-level "type" key within buf (a line's head), or null if not found there.
+function topLevelType(buf) {
+  let depth = 0, inStr = false, strStart = -1, lastKey = null, expectValue = false;
+  for (let k = 0; k < buf.length; k++) {
+    const c = buf[k];
+    if (inStr) {
+      if (c === 0x5c) k++; // backslash
+      else if (c === 0x22) {
+        inStr = false;
+        if (depth === 1) {
+          const s = buf.subarray(strStart, k).toString('utf8');
+          if (expectValue) {
+            if (lastKey === 'type') return s;
+            expectValue = false;
+          } else lastKey = s;
+        }
+      }
+      continue;
+    }
+    if (c === 0x22) {
+      inStr = true;
+      strStart = k + 1;
+    } else if (c === 0x7b || c === 0x5b) {
+      depth++;
+      expectValue = false;
+    } else if (c === 0x7d || c === 0x5d) depth--;
+    else if (c === 0x3a && depth === 1) expectValue = true;
+    else if (c === 0x2c && depth === 1) {
+      expectValue = false;
+      lastKey = null;
+    }
+  }
+  return null;
 }
 
 // Screenshots sit in transcripts as base64 (86% of a busy day's bytes) and nothing here reads them, so long
@@ -1680,7 +1724,7 @@ class RadarEngine {
       const r = int(u.cache_read_input_tokens), w = int(u.cache_creation_input_tokens);
       if (!A) {
         S.ctx = i + r + w;
-        S.ctxMax = contextLimit(model, S.cwd, this.userSettings);
+        S.ctxMax = contextLimit(model ?? S.model, S.cwd, this.userSettings);
       }
       if (today) {
         const G = this.G;
@@ -2455,12 +2499,16 @@ class RadarEngine {
     }
     if (st.size <= (O.logOffset || 0)) return;
     const from = Math.max(O.logOffset || 0, st.size > 2 << 20 ? st.size - (2 << 20) : 0);
-    const fd = fs.openSync(O.log, 'r');
     const buf = Buffer.alloc(st.size - from);
     try {
-      fs.readSync(fd, buf, 0, buf.length, from);
-    } finally {
-      fs.closeSync(fd);
+      const fd = fs.openSync(O.log, 'r');
+      try {
+        fs.readSync(fd, buf, 0, buf.length, from);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      return;
     }
     const end = buf.lastIndexOf(0x0a);
     if (end < 0) return;

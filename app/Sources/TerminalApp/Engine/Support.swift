@@ -55,7 +55,12 @@ private func compactSetting(_ file: String) -> Double? {
     var value: Double?
     if let data = FileManager.default.contents(atPath: file),
        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let v = json["autoCompactWindow"] {
-        value = (v as? NSNumber).map { $0.doubleValue < 10_000 ? $0.doubleValue * 1000 : $0.doubleValue } ?? (v as? String).flatMap(tokenCount)
+        if let n = v as? NSNumber {
+            let d = n.doubleValue
+            value = d > 0 ? (d < 10_000 ? d * 1000 : d) : nil
+        } else if let s = v as? String {
+            value = tokenCount(s)
+        }
     }
     compactCache[file] = (value, now)
     return value
@@ -68,7 +73,7 @@ private func tokenCount(_ text: String) -> Double? {
     let unit: Double = t.hasSuffix("m") ? 1e6 : t.hasSuffix("k") ? 1e3 : 1
     guard let n = Double(unit == 1 ? t : String(t.dropLast())), n > 0 else { return nil }
     let tokens = n * unit
-    return tokens < 10_000 ? tokens * 1000 : tokens
+    return unit == 1 && tokens < 10_000 ? tokens * 1000 : tokens
 }
 
 func costOf(_ model: String?, _ u: [String: Any]) -> Double {
@@ -290,7 +295,7 @@ func parseISO(_ s: String?) -> Double {
     var ms = 0.0
     if u.count > 20, u[19] == UInt8(ascii: ".") {
         var k = 20, frac = 0.0, scale = 100.0
-        while k < u.count, u[k] >= 48, u[k] <= 57 {
+        while k < u.count, k < 23, u[k] >= 48, u[k] <= 57 {
             frac += Double(u[k] - 48) * scale
             scale /= 10
             k += 1
