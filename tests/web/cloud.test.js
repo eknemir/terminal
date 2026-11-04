@@ -953,7 +953,7 @@ test('menu: Escape closes a friend card first; clicking the backdrop closes the 
   d.key('a');
 });
 
-test('BUG cloud.js:840: a friend with no presence and no last message breaks the friends list', { todo: 'cloud.js:840 reads Social.PRESENCE[f.presence].label without the offline default' }, async (t) => {
+test('fixed cloud.js:840: a friend with no presence and no last message breaks the friends list', async (t) => {
   const s = social();
   s.friends.push({ id: 'f3', name: 'New', tag: 1, unread: 0, last: null });
   const d = boot({ social: s });
@@ -962,4 +962,35 @@ test('BUG cloud.js:840: a friend with no presence and no last message breaks the
   d.window.Cloud.showView('friends');
   await d.flush();
   assert.equal(d.$$('#friends-view .mn-friends .mn-row').length, 3);
+});
+
+test('fixed cloud.js:1284: without a theme handler the leaderboard still draws its card (themeList catches the throw)', async (t) => {
+  const d = boot();
+  t.after(d.close);
+  await d.flush();
+  d.window.Cloud.showView('board');
+  await d.flush();
+  await d.flush();
+  assert.ok(d.$('#board-view .cv-card .pf-host'));
+  assert.match(d.$('#board-view .cv-card .pf-host').textContent, /#9 on the leaderboard/);
+});
+
+test('fixed cloud.js:1013: a friend\'s week shows their own goal, and hides without one', async (t) => {
+  const s = social();
+  s.friends[0].xp = { level: 30, last24: 3600, week: 2, goal: 5, total: 7200 };
+  s.friends[1].xp = { level: 3, week: 1, total: 60 };
+  s.friends[1].presence = 'weird';
+  const d = boot({ social: s });
+  t.after(d.close);
+  await d.flush();
+  d.window.Cloud.showView('friends');
+  await d.flush();
+  const v = d.$('#friends-view');
+  d.click(v.querySelector('.mn-row[data-id="f1"] [data-act="profile"]'));
+  assert.match(v.querySelector('.mn-confirm .pf-stats').textContent, /THIS WEEK2\/5 days/);
+  d.click(v.querySelector('.mn-confirm [data-ans="close"]'));
+  d.click(v.querySelector('.mn-row[data-id="f2"] [data-act="profile"]'));
+  const stats = v.querySelector('.mn-confirm .pf-stats').textContent;
+  assert.doesNotMatch(stats, /THIS WEEK|\/3 days/);
+  assert.match(stats, /TOTAL/);
 });

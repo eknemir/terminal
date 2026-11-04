@@ -507,11 +507,12 @@ enum TokenSavers {
         let file = HOME + "/.codex/AGENTS.md"
         let old = (try? String(contentsOfFile: file, encoding: .utf8)) ?? ""
         var text = old
-        // The notes go with the line break put before them and the one after.
+        // The notes go with the line break after them; the one before goes too only when nothing follows, so the
+        // lines around them stay one line break apart.
         if let a = text.range(of: codexStart), let b = text.range(of: codexEnd, range: a.upperBound..<text.endIndex) {
             var lo = a.lowerBound, hi = b.upperBound
-            if lo > text.startIndex, text[text.index(before: lo)] == "\n" { lo = text.index(before: lo) }
             if hi < text.endIndex, text[hi] == "\n" { hi = text.index(after: hi) }
+            if hi == text.endIndex, lo > text.startIndex, text[text.index(before: lo)] == "\n" { lo = text.index(before: lo) }
             text.removeSubrange(lo..<hi)
         }
         let next = change(text)

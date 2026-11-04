@@ -35,7 +35,7 @@ function api(routes) {
     const r = routes[key];
     if (r === undefined) return res(404, { error: 'not_found' });
     if (r instanceof Error) throw r;
-    const [status, json, headers] = typeof r === 'function' ? r(body, { url, opts, calls }) : r;
+    const [status, json, headers] = typeof r === 'function' ? await r(body, { url, opts, calls }) : r;
     return res(status, json, headers);
   };
   return { fetch, calls };
@@ -191,7 +191,7 @@ test('heartbeat: offline -> unreachable; 401 -> token dropped and identify; unex
   assert.deepEqual(a.calls.map((x) => x.key).slice(-3), ['POST v1/heartbeat', 'POST v1/devices/identify', 'POST v1/heartbeat']);
 });
 
-test('a fresh token the heartbeat also refuses is not retried without end', { todo: 'cloud.js:311-315 + 348-350: heartbeat 401 -> identify -> heartbeat 401 … loops with no limit or backoff' }, async () => {
+test('a fresh token the heartbeat also refuses is not retried without end', async () => {
   const d = dir();
   fs.writeFileSync(tokenFile(d), 'old');
   let ids = 0;
@@ -434,7 +434,8 @@ test('social: allowed paths only, signed out, offline, errors, 401 re-signs-in',
   for (const bad of ['v1/heartbeat', 'v1/friendsx', '../v1/friends', 'v1/friends/../devices', 'v1/friends/%2e%2e/%2e%2e/v1/devices', 'https://evil.test/v1/friends', '', 5]) {
     assert.deepEqual(await q(bad), { error: 'bad_path' }, String(bad));
   }
-  assert.deepEqual(await q('v1/friends?x=1'), { error: 'not_found' }, 'query allowed (route table has no query)');
+  assert.deepEqual(await q('v1/friends?x=1'), { friends: [1] }, 'a query is allowed');
+  assert.equal(new URL(r.a.calls.at(-1).url).search, '?x=1');
   // non-string method -> GET
   await r.c.handle({ type: 'social', path: 'v1/friends', method: 5 });
   assert.equal(r.a.calls.at(-1).opts.method, 'GET');
@@ -530,8 +531,10 @@ test('live socket: no ticket retries later; no WebSocket warns once; signed out 
     hb = [401, {}];
     await quiet(() => r.c.handle({ type: 'checkUpdate' }));
     assert.equal(r.c.json().registered, false);
+    const n = tickets; // the state change itself may have tried once more
+    assert.ok(n <= 3);
     await new Promise((res2) => setTimeout(res2, 4200));
-    assert.equal(tickets, 2);
+    assert.equal(tickets, n, 'signed out: no more tries');
   } finally {
     r.c.stop();
     globalThis.WebSocket = ws;

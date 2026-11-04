@@ -103,6 +103,7 @@ window.GitEditor = (() => {
     }
     const scopeOf = (path) => {
       const L = window.__tmLanguages;
+      if (!L || !L.names || !L.ext) return null; // tm/ failed to load: plain text
       const name = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
       if (L.names[name]) return L.names[name];
       const parts = name.split('.');
@@ -137,7 +138,7 @@ window.GitEditor = (() => {
     }
     const label = (path) => {
       const s = scopeOf(path);
-      return s ? window.__tmLanguages.labels[s] || s : 'Düz Metin';
+      return s ? (window.__tmLanguages.labels || {})[s] || s :'Düz Metin';
     };
     return { init, tokenize, label, ready: () => !!registry };
   })();

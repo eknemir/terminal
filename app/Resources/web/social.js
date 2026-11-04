@@ -14,7 +14,7 @@ window.Social = (() => {
     invisible: { label: 'görünmez', hint: 'çevrimdışı görünürsün, sohbet yine çalışır' },
     offline: { label: 'çevrimdışı', hint: '' },
   };
-  const dot = (p) => `<i class="pdot p-${p || 'offline'}" title="${PRESENCE[p || 'offline'].label}"></i>`;
+  const dot = (p) => `<i class="pdot p-${p || 'offline'}" title="${(PRESENCE[p] || PRESENCE.offline).label}"></i>`;
   const handle = (p) => `${p.name}#${String(p.tag).padStart(4, '0')}`;
 
   let S = null; // { me: {id, name, tag, status}, friends, incoming, outgoing }

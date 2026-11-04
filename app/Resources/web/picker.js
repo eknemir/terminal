@@ -59,7 +59,7 @@
     root.classList.add('on');
     const q = (s) => root.querySelector(s);
     q('.l-close').onclick = () => cancel(true);
-    q('.pk-cancel').onclick = cancel;
+    q('.pk-cancel').onclick = () => cancel();
     q('.pk-ok').onclick = choose;
     q('.pk-back').onclick = () => go(st.back.pop(), 'back');
     q('.pk-fwd').onclick = () => go(st.fwd.pop(), 'fwd');
@@ -99,6 +99,8 @@
       st.home = p.home;
       renderSide();
       renderCrumbs();
+      // Shortcuts that came first were drawn with full paths: draw them again with ~.
+      if (st.home) st.slots.forEach((s, i) => s && !s.display && paint(i));
     });
     await go(start, null);
   }
@@ -378,6 +380,9 @@
       const menu = root.querySelector('.pk-ctx');
       if (menu) menu.remove();
       else cancel();
+    } else if ((e.key === 'ArrowRight' || (e.key === 'ArrowDown' && (e.metaKey || e.ctrlKey))) && st.sel >= 0) {
+      e.preventDefault();
+      go(visible()[st.sel].path, null);
     } else if (e.key === 'ArrowDown' && n) {
       e.preventDefault();
       select(Math.min(n - 1, st.sel + 1));
@@ -385,9 +390,6 @@
       e.preventDefault();
       if (e.metaKey || e.ctrlKey) up();
       else select(Math.max(0, st.sel - 1));
-    } else if ((e.key === 'ArrowRight' || (e.key === 'ArrowDown' && (e.metaKey || e.ctrlKey))) && st.sel >= 0) {
-      e.preventDefault();
-      go(visible()[st.sel].path, null);
     } else if (e.key === 'ArrowLeft' && document.activeElement?.tagName !== 'INPUT') {
       e.preventDefault();
       up();

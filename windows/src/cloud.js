@@ -283,11 +283,24 @@ function createCloud(opts = {}) {
   // Every minute, at launch and after sleep or a network change. Signed in: a heartbeat. Without a token (first launch,
   // a lost token, launched offline): ask the API, which no longer recognises a PC by its hash, so the user picks a name.
   // Asked for while one runs, it waits for that one.
-  function beat() {
+  // A fresh token the heartbeat refuses too: sign in again after 5 s, 10 s, 20 s … (at most 10 min), and after
+  // REAUTH_MAX such refusals in a row stay offline until the app starts again or the user checks by hand.
+  const REAUTH_MAX = 3, REAUTH_FIRST = 5000, REAUTH_CAP = 600_000;
+  let reauths = 0, reauthAt = 0;
+  function reauthBlocked() {
+    return reauths >= REAUTH_MAX || Date.now() < reauthAt;
+  }
+
+  function beat(manual = false) {
+    if (manual && reauths >= REAUTH_MAX) {
+      reauths = 0;
+      reauthAt = 0;
+    }
     if (!beating) {
       beating = (async () => {
         const token = readToken();
         if (token) await heartbeat(token);
+        else if (reauths && reauthBlocked()) set({ reachable: false });
         else await identify();
       })()
         .catch((e) => console.error('cloud: heartbeat', e))
@@ -299,7 +312,7 @@ function createCloud(opts = {}) {
   }
 
   // Keeps this PC online, says whether its user is working (XP) and sends a name picked offline.
-  async function heartbeat(token) {
+  async function heartbeat(token, fresh = false) {
     // The theme too: the leaderboard shows someone's card in their theme, and anyone can take it.
     const body = { ...client(), active: !!ask(isActive, false), tz: -Math.round(new Date().getTimezoneOffset()) };
     const th = ask(theme, '');
@@ -312,8 +325,17 @@ function createCloud(opts = {}) {
       if (e.status !== 401) return set({ reachable: false });
       // The token isn't valid anymore: start over.
       saveToken(null);
+      if (fresh) {
+        // Just handed out and refused already: don't ask again at once, back off.
+        reauths++;
+        reauthAt = Date.now() + Math.min(REAUTH_FIRST * 2 ** (reauths - 1), REAUTH_CAP);
+        return set({ reachable: false });
+      }
+      if (reauthBlocked()) return set({ reachable: false });
       return identify();
     }
+    reauths = 0;
+    reauthAt = 0;
     let name = a.hackerName;
     let tag = a.tag;
     const wanted = pendingName();
@@ -347,7 +369,7 @@ function createCloud(opts = {}) {
     }
     if (a.known && typeof a.token === 'string') {
       saveToken(a.token);
-      return heartbeat(a.token);
+      return heartbeat(a.token, true);
     }
     const name = pendingName();
     if (name) {
@@ -383,7 +405,7 @@ function createCloud(opts = {}) {
     saveToken(a.token);
     if (pendingName() === name) setPending(null);
     set({ reachable: true, registered: true, hackerName: a.hackerName, tag: a.tag, nameError: null });
-    await heartbeat(a.token);
+    await heartbeat(a.token, true);
     return DONE();
   }
 
@@ -424,7 +446,7 @@ function createCloud(opts = {}) {
   async function checkUpdate() {
     if (S.checking) return;
     set({ checking: true });
-    await beat();
+    await beat(true);
     set({ checking: false, checkedAt: Date.now() });
   }
 

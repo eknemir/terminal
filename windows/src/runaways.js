@@ -99,7 +99,11 @@ function createRunaways({ onChange, onRead }) {
       seen.add(p.pid);
       const prev = last.get(p.pid);
       last.set(p.pid, { started: p.started, cpu: p.cpu, at });
-      if (!prev || prev.started !== p.started || at <= prev.at || p.cpu < prev.cpu) continue;
+      if (!prev || prev.started !== p.started || at <= prev.at || p.cpu < prev.cpu) {
+        // A new process (or one reused pid): its time over the line starts afresh.
+        over.delete(p.pid);
+        continue;
+      }
       const pct = ((p.cpu - prev.cpu) / (at - prev.at)) * 100;
       if (pct < LINE) {
         over.delete(p.pid);

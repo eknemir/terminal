@@ -529,7 +529,7 @@ test('autoStart: an error keeping theirs current is logged', async () => {
   assert.ok(errs.some((e) => /savers: rtk: which broke/.test(e)));
 });
 
-test('editCodexNotes: notes the user wrote more under keep the line between', { todo: 'savers.js:392-393 drops both line breaks around the notes: "top" and "bottom" join' }, async () => {
+test('editCodexNotes: notes the user wrote more under keep the line between', async () => {
   const t = setup({ rtk: false });
   fs.writeFileSync(t.agents, 'top\n<!-- terminal-app: caveman -->\nold\n<!-- /terminal-app: caveman -->\nbottom\n');
   await t.s.set('caveman', true);

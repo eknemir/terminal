@@ -387,10 +387,11 @@ function createSavers({ settings, ownDir, bundled, claudeDir, codexDir, which, u
     let text = old;
     const a = text.indexOf(CODEX_START), b = a >= 0 ? text.indexOf(CODEX_END, a) : -1;
     if (a >= 0 && b >= 0) {
-      // The notes go with the line break put before them and the one after.
+      // The notes go with the line break after them; the one before goes too only when nothing follows, so the
+      // lines around them stay one line break apart.
       let lo = a, hi = b + CODEX_END.length;
-      if (lo > 0 && text[lo - 1] === '\n') lo--;
       if (text[hi] === '\n') hi++;
+      if (hi >= text.length && lo > 0 && text[lo - 1] === '\n') lo--;
       text = text.slice(0, lo) + text.slice(hi);
     }
     const next = change(text);

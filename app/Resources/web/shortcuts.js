@@ -14,7 +14,7 @@
   const root = document.createElement('div');
   root.id = 'shortcuts';
   document.body.appendChild(root);
-  let pie = null, closing = false, at = { x: innerWidth / 2, y: innerHeight / 2 };
+  let pie = null, closing = false, closeTimer = null, at = { x: innerWidth / 2, y: innerHeight / 2 };
 
   const rad = (deg) => (deg * Math.PI) / 180;
   const pt = (r, deg) => [C + r * Math.cos(rad(deg)), C + r * Math.sin(rad(deg))];
@@ -189,8 +189,12 @@
 
   // keepOverlay: the picker or a chat window follows, so the app's overlay panel must stay up.
   function close(instant, keepOverlay) {
-    if (!pie || closing) return;
+    if (!pie || (closing && !instant)) return;
     if (instant) {
+      // A close still animating is dropped: its timer must not tell the app "done" over the pie that follows.
+      clearTimeout(closeTimer);
+      closeTimer = null;
+      closing = false;
       root.classList.remove('on');
       root.innerHTML = '';
       pie = null;
@@ -199,7 +203,8 @@
     closing = true;
     pie.classList.add('closing');
     const p = pie;
-    setTimeout(() => {
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
       if (pie === p) {
         root.classList.remove('on');
         root.innerHTML = '';

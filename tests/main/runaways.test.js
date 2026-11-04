@@ -224,7 +224,7 @@ test('runaways: dipping under the line restarts the 2 minutes; less CPU or no ti
   assert.equal(h2.changes[0][0].cpu, 50);
 });
 
-test('runaways: a pid taken by a new process starts its 2 minutes afresh', { skip: !WIN, todo: 'runaways.js:102 keeps `over` for a reused pid' }, (t) => {
+test('runaways: a pid taken by a new process starts its 2 minutes afresh', { skip: !WIN }, (t) => {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'], now: 1_000_000 });
   const h = harness();
   h.r.start();

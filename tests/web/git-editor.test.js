@@ -274,7 +274,7 @@ test('labels: by file name, by extension, the scope when unnamed, plain text oth
   assert.equal((await E(d).open(d.el, spec({ path: 'a.txt' }), {})).language, 'Düz Metin');
 });
 
-test('BUG git-editor.js:107/139: without the highlighter\'s language list (tm/ failed to load) opening any diff throws', { todo: 'TM.label reads window.__tmLanguages.names unguarded; git.js then never shows the diff' }, async (t) => {
+test('fixed git-editor.js:107/139: without the highlighter\'s language list (tm/ failed to load) opening any diff throws', async (t) => {
   const d = boot({ noLanguages: true });
   t.after(d.close);
   const r = await E(d).open(d.el, spec(), {});

@@ -314,6 +314,8 @@ window.Cloud = (() => {
                 <label class="hk-field st-select"><select class="hk-input th-select" title="Arayüz teması"><option>…</option></select></label></div>
               <div class="hk-row"><span>Yazı tipi<small>Panonun ve mesajların yazısı</small></span><span class="lb-seg ui-seg ui-font"></span></div>
               <div class="hk-row"><span>Yazı boyutu<small>Pano için · okunamayacak kadar küçük yazılarda büyüt</small></span><span class="lb-seg ui-seg ui-scale"></span></div>` : ''}
+              ${window.DTComposer ? `<div class="hk-row"><span>Detaylı görünüm<small>Oturum akışı, çalışanlar, araç dağılımı, harcama ve üst çubuk sayaçlarını geri getirir · kapalıyken sade görünüm</small></span>
+                <button type="button" class="hk-sw detailed" role="switch" aria-checked="false" title="Detaylı görünümü aç veya kapat"><i></i></button></div>` : ''}
             </div>
 
             <div class="st-sec">
@@ -395,6 +397,13 @@ window.Cloud = (() => {
       cm.value = window.ChatModel.get();
       cm.addEventListener('change', () => window.ChatModel.set(cm.value));
       cm.addEventListener('keydown', (e) => e.stopPropagation());
+    }
+    // Görünüm · Detaylı görünüm: composer.js keeps it ('ui.detailed') and flips html.dt-minimal.
+    const det = settings.querySelector('.hk-sw.detailed');
+    if (det && window.DTComposer) {
+      const paintDet = () => { const v = window.DTComposer.isDetailed(); det.classList.toggle('on', v); det.setAttribute('aria-checked', String(v)); };
+      det.addEventListener('click', () => { window.DTComposer.setDetailed(!window.DTComposer.isDetailed()); paintDet(); });
+      paintDet();
     }
     wireAccent(settings);
     wireThemeSelect(settings);
@@ -848,7 +857,7 @@ window.Cloud = (() => {
       s.friends.length
         ? s.friends
             .map((f) => {
-              const line = f.last ? `${f.last.mine ? 'you: ' : ''}${esc(f.last.body)}` : esc(Social.PRESENCE[f.presence].label);
+              const line = f.last ? `${f.last.mine ? 'you: ' : ''}${esc(f.last.body)}` : esc((Social.PRESENCE[f.presence] || Social.PRESENCE.offline).label);
               // Their level (a click shows their profile) and how long they've worked today, if they share it.
               const lv = f.xp ? Xp.badge(f.xp.level, 'profile') : '';
               // Their last 24 hours, not their today: that ends at their own midnight, wherever they live.
@@ -1017,11 +1026,11 @@ window.Cloud = (() => {
     card.className = 'mn-confirm';
     card.innerHTML =
       `<div class="mn-ask pf-card" style="--rc:${r.color}"><div class="pf-head">${Xp.headband(x.level, 'pf-band')}` +
-      `<div class="pf-rank"><small>${Social.dot(f.presence)} ${esc(Social.PRESENCE[f.presence || 'offline'].label)}</small>${tagged(f)}` +
+      `<div class="pf-rank"><small>${Social.dot(f.presence)} ${esc((Social.PRESENCE[f.presence] || Social.PRESENCE.offline).label)}</small>${tagged(f)}` +
       `<span>Level ${x.level} · ${esc(r.name)}</span></div></div>` +
       (x.total === null
         ? '<p>keeps their active time to themselves</p>'
-        : `<div class="pf-stats">${stat('LAST 24H', x.last24 == null ? '—' : Xp.dur(x.last24))}${stat('THIS WEEK', `${x.week}/3 days`)}${stat('TOTAL', Xp.hours(x.total))}</div>` +
+        : `<div class="pf-stats">${stat('LAST 24H', x.last24 == null ? '—' : Xp.dur(x.last24))}${x.goal ? stat('THIS WEEK', `${x.week}/${x.goal} days`) : ''}${stat('TOTAL', Xp.hours(x.total))}</div>` +
           (x.days ? `<div class="hk-h">LAST 7 DAYS</div>${Xp.week(x.days, r.color, x.daysEnd)}` : '')) +
       '<div class="mn-ask-btns"><button type="button" class="mn-btn" data-ans="close">close</button><button type="button" class="mn-btn go" data-ans="chat">✉ message</button></div></div>';
     card.onclick = (e) => {
@@ -1281,7 +1290,7 @@ window.Cloud = (() => {
   // colours, for the theme view's pictures and for someone's card in their theme.
   const theme = (type, payload) => window.webkit.messageHandlers.theme.postMessage(Object.assign({ type }, payload || {}));
   let themes = null;
-  const themeList = async () => themes || (themes = await theme('list').catch(() => null));
+  const themeList = async () => themes || (themes = await Promise.resolve().then(() => theme('list')).catch(() => null));
   // A theme's colours on one element and what's in it: its tokens, those made from them again (style.css makes them on
   // the root, from the root's), and its text colour.
   const themeStyle = (tokens) =>

@@ -368,9 +368,9 @@ test('picker around: 14 places; a filled one opens, an empty one is filled, righ
   assert.equal(tiles().length, 14);
   assert.deepEqual([...p.querySelectorAll('.pk-around')].map((b) => b.querySelectorAll('.sc-tile').length), [4, 3, 4, 3]);
   assert.equal(tiles()[0].querySelector('.nm').textContent, 'app');
-  // The places arrive after the tiles are drawn, so the first drawing shows full paths (not ~): picker.js:90 vs :99.
-  assert.equal(tiles()[0].querySelector('.sub').textContent, `${HOME}/Documents/Repos`);
-  assert.equal(tiles()[0].title, `${HOME}/Documents/Repos/app`);
+  // The places arrive after the tiles are drawn; the tiles are drawn again with ~ once home is known.
+  assert.equal(tiles()[0].querySelector('.sub').textContent, '~/Documents/Repos');
+  assert.equal(tiles()[0].title, '~/Documents/Repos/app');
   assert.ok(tiles()[1].classList.contains('empty'));
   assert.equal(tiles()[1].title, 'Kısayol 2: klasör seç');
   // an empty one: assigning
@@ -478,7 +478,7 @@ test('picker around: a failing save keeps the place; Windows paths', async (t) =
   assert.match(p2.querySelector('.pk-up').title, /Ctrl\+↑/);
 });
 
-test('BUG picker.js:381: Ctrl/⌘+↓ should open the selected folder, but the plain ↓ branch catches it first', { todo: 'picker.js:388 is unreachable for ArrowDown with a modifier' }, async (t) => {
+test('fixed picker.js:381: Ctrl/⌘+↓ should open the selected folder, but the plain ↓ branch catches it first', async (t) => {
   const d = boot();
   t.after(d.close);
   await d.flush();
@@ -490,7 +490,7 @@ test('BUG picker.js:381: Ctrl/⌘+↓ should open the selected folder, but the p
   assert.deepEqual([...d.$$('#picker .pk-crumbs span')].map((s) => s.textContent), ['~', 'Documents', 'Repos', 'app']);
 });
 
-test('BUG picker.js:62: the "Geri" button while filling a place should go back, but closes the picker', { todo: 'pk-cancel.onclick = cancel passes the click event as `force`' }, async (t) => {
+test('fixed picker.js:62: the "Geri" button while filling a place should go back, but closes the picker', async (t) => {
   const d = boot();
   t.after(d.close);
   await d.flush();
@@ -505,7 +505,7 @@ test('BUG picker.js:62: the "Geri" button while filling a place should go back, 
   assert.ok(!p.classList.contains('assigning'));
 });
 
-test('BUG shortcuts.js:192: reopening the pie during its closing animation lets the old close tell the app "done"', { todo: 'close(true) returns early while closing; the pending timer then calls API.done() over the new pie' }, async (t) => {
+test('fixed shortcuts.js:192: reopening the pie during its closing animation lets the old close tell the app "done"', async (t) => {
   const d = boot();
   t.after(d.close);
   await d.flush();
@@ -516,4 +516,19 @@ test('BUG shortcuts.js:192: reopening the pie during its closing animation lets 
   d.tick(200);
   assert.ok(d.$('#shortcuts').classList.contains('on'));
   assert.equal(d.ov('done').length, 0);
+});
+
+test('fixed picker.js:87-102: shortcut places that arrive before the home folder are drawn again with ~', async (t) => {
+  let release;
+  const d = boot({ around: [{ name: 'app', dir: `${HOME}/Documents/Repos/app` }], answers: { places: () => new Promise((r) => (release = r)) } });
+  t.after(d.close);
+  await d.flush();
+  d.window.Overlay.newTerminal();
+  await d.flush();
+  const tile = () => d.$('#picker .sc-tile[data-i="0"]');
+  assert.equal(tile().title, `${HOME}/Documents/Repos/app`);
+  release(places);
+  await d.flush();
+  assert.equal(tile().title, '~/Documents/Repos/app');
+  assert.equal(tile().querySelector('.sub').textContent, '~/Documents/Repos');
 });

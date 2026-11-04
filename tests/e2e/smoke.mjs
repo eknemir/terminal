@@ -77,6 +77,14 @@ try {
     assert(!/\b(Settings|New video|Sessions|Loading)\b/.test(bar), 'English in top bar: ' + bar);
   });
 
+  await step('02b minimal layout with composer', async () => {
+    const s = await page.evaluate(() => {
+      const vis = (sel) => { const e = document.querySelector(sel); return !!e && getComputedStyle(e).display !== 'none' && e.getClientRects().length > 0; };
+      return { minimal: document.documentElement.classList.contains('dt-minimal'), kpis: vis('#top .kpis'), ticker: vis('#ticker'), log: vis('#p-log'), composer: vis('#composer .cmp-input'), map: vis('#mapwrap') };
+    });
+    assert(s.minimal && !s.kpis && !s.ticker && !s.log && s.composer && s.map, 'layout: ' + JSON.stringify(s));
+  });
+
   await step('03 studio tabs switch', async () => {
     for (const [label, mount] of [['Efektler', 'presets'], ["Skill'ler", 'skills'], ['Önizleme', 'video']]) {
       await page.locator('.st-tab', { hasText: label }).click();

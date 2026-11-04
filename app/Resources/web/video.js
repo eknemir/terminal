@@ -164,6 +164,8 @@
     var state = { dir: null, all: [], list: [], filter: 'all', sel: null, newestPath: null, first: true };
     try { state.filter = localStorage.getItem('video.filter') || 'all'; } catch (e) {}
     try { state.dir = localStorage.getItem('video.dir') || null; } catch (e) {}
+    // composer.js reads the selected video (its notes live in localStorage 'video.notes:<path>').
+    window.DTVideo.current = function () { return state.sel ? { path: state.sel.path, notesKey: 'video.notes:' + state.sel.path } : null; };
 
     var wrap = el('div', 'dtv');
     wrap.tabIndex = 0;
@@ -483,7 +485,7 @@
     document.addEventListener('click', function (e) { if (!menu.contains(e.target)) closeMenu(); });
     refresh.onclick = function () { load(); };
     empty.style.cursor = 'pointer';
-    empty.onclick = function () { if (!state.list.length) chip.click(); };
+    empty.onclick = function (e) { if (!state.list.length) { e.stopPropagation(); chip.click(); } }; // else the document click handler closes the menu at once
 
     // ----- notes logic -----
     var notes = [], editing = null, pending = null, rangeStart = null, sHeld = null;
@@ -740,6 +742,7 @@
       });
     }
     function showGrab(png, t) {
+      window.DTVideo.lastFrame = { path: png, t: t };
       grabBar.innerHTML = '';
       grabBar.appendChild(el('span', 'dtv-nstamp', fmtStamp(t)));
       var p = el('span', 'tx', png); p.title = png;

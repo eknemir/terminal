@@ -143,7 +143,8 @@
   var done = false;
   function register() {
     var V = window.DTVideo;
-    if (done || !V || typeof V.registerAction !== 'function') return false;
+    if (done) return true;
+    if (!V || typeof V.registerAction !== 'function') return false;
     done = true;
     ACTIONS.forEach(function (a) {
       var run = a.run;

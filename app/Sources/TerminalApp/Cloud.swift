@@ -192,20 +192,39 @@ final class Cloud {
 
     /// Every minute, at launch and when the network returns. Signed in: a heartbeat. Without a token (first launch, a
     /// lost token, launched offline): ask the API, which no longer recognises a Mac by its hash, so the user picks a name.
-    func beat() async {
+    func beat(manual: Bool = false) async {
+        if manual, reauths >= Self.reauthMax {
+            reauths = 0
+            reauthAt = 0
+        }
         guard !beating else { return }
         beating = true
         defer { beating = false }
-        if let token { await heartbeat(token) } else { await identify() }
+        if let token {
+            await heartbeat(token)
+        } else if reauths > 0, reauthBlocked {
+            state.reachable = false
+        } else {
+            await identify()
+        }
     }
 
+    /// A fresh token the heartbeat refuses too: sign in again after 5 s, 10 s, 20 s … (at most 10 min), and after
+    /// `reauthMax` such refusals in a row stay offline until the app starts again or the user checks by hand.
+    private static let reauthMax = 3, reauthFirst = 5.0, reauthCap = 600.0
+    private var reauths = 0
+    private var reauthAt: TimeInterval = 0
+    private var reauthBlocked: Bool { reauths >= Self.reauthMax || Date().timeIntervalSince1970 < reauthAt }
+
     /// Keeps this Mac online, says whether its user is working (XP), picks up updates and sends a name picked offline.
-    private func heartbeat(_ token: String) async {
+    private func heartbeat(_ token: String, fresh: Bool = false) async {
         struct Answer: Decodable { let hackerName: String; let tag: Int; let online: Int; let update: Release?; let xp: XP?; let xpPaused: Bool? }
         // The theme too: the leaderboard shows someone's card in their theme, and anyone can take it.
         let work: [String: Any] = ["active": Activity.active, "tz": TimeZone.current.secondsFromGMT() / 60, "theme": ThemeStore.shared.chosenId]
         do {
             let a: Answer = try await call("POST", "v1/heartbeat", body: client.merging(work) { $1 }, token: token)
+            reauths = 0
+            reauthAt = 0
             var name = a.hackerName, tag = a.tag
             if let wanted = pendingName {
                 switch await send(name: wanted, token: token) {
@@ -237,7 +256,16 @@ final class Cloud {
         } catch Failure.status(401, _) {
             // The token isn't valid anymore: start over.
             self.token = nil
-            await identify()
+            if fresh {
+                // Just handed out and refused already: don't ask again at once, back off.
+                reauths += 1
+                reauthAt = Date().timeIntervalSince1970 + min(Self.reauthFirst * pow(2, Double(reauths - 1)), Self.reauthCap)
+                state.reachable = false
+            } else if reauthBlocked {
+                state.reachable = false
+            } else {
+                await identify()
+            }
         } catch {
             state.reachable = false
         }
@@ -249,7 +277,7 @@ final class Cloud {
             let a: Answer = try await call("POST", "v1/devices/identify", body: client.merging(["deviceHash": DeviceID.hash]) { $1 })
             if a.known, let t = a.token {
                 token = t
-                await heartbeat(t)
+                await heartbeat(t, fresh: true)
             } else if let name = pendingName {
                 // Named offline before this Mac was registered: register with that name now.
                 pendingName = nil
@@ -288,7 +316,7 @@ final class Cloud {
             s.tag = a.tag
             s.nameError = nil
             state = s
-            await heartbeat(a.token)
+            await heartbeat(a.token, fresh: true)
             return .done
         } catch Failure.status(409, "device_exists") {
             // Registered before (reinstall, erased disk): sign in and keep the name just picked.
@@ -416,7 +444,7 @@ final class Cloud {
     func checkForUpdates() async {
         guard !state.checking else { return }
         state.checking = true
-        await beat()
+        await beat(manual: true)
         state.checking = false
         state.checkedAt = Date()
     }

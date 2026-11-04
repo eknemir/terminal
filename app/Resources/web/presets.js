@@ -493,8 +493,10 @@
         act('Dışa aktar', function () { download([p], p.id); });
         act('Sil', function () {
           if (!window.confirm('"' + p.name + '" silinsin mi?')) return;
+          var prev = state.user;
           state.user = state.user.filter(function (u) { return u.id !== p.id; });
-          persist(); closeDrawer(); render(); toast('Preset silindi');
+          if (!persist()) { state.user = prev; return; }
+          closeDrawer(); render(); toast('Preset silindi');
         }, 'pz-danger');
       } else {
         act('Kopyala ve düzenle', function () { openEditor(p, true); });

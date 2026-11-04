@@ -81,7 +81,11 @@ final class Runaways {
     /// Whether it has burned half a core or more for two minutes (then it's added to `items`).
     private func runaway(_ pid: Int32, _ p: Proc.Info, prev: (started: UInt64, cpu: UInt64, at: Double)?, now: Double, wall: Double,
                          into items: inout [Item]) -> Bool {
-        guard let prev, prev.started == p.started, now > prev.at, p.cpuTime >= prev.cpu else { return false }
+        guard let prev, prev.started == p.started, now > prev.at, p.cpuTime >= prev.cpu else {
+            // A new process (or a reused pid): its time over the line starts afresh.
+            over[pid] = nil
+            return false
+        }
         let cpu = Double(p.cpuTime - prev.cpu) / 1e9 / (now - prev.at) * 100
         guard cpu >= Self.line else {
             over[pid] = nil

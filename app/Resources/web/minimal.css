@@ -1,0 +1,26 @@
+/* Minimal layout (composer.js sets html.dt-minimal unless Settings · Görünüm · "Detaylı görünüm" is on).
+   Stats out; the centre (map / chat tabs) grows to the composer. */
+.dt-minimal #app { grid-template-rows: auto minmax(0, 1fr) auto; }
+.dt-minimal #bottom { grid-template-rows: auto; }
+.dt-minimal #bottom > .panel,
+.dt-minimal #ticker,
+.dt-minimal #top .kpis,
+.dt-minimal #top .marquee,
+.dt-minimal #top .clock,
+.dt-minimal #top #live,
+.dt-minimal #top #sound, /* still in Settings · Sesler & Bildirimler */
+.dt-minimal #mapwrap .legend { display: none !important; }
+.dt-minimal #top .brand { margin-right: auto; }
+
+/* Detailed: the composer sits above the old panels. */
+.dt-detailed #app { grid-template-rows: auto minmax(0, 1fr) minmax(250px, 34vh) 22px; }
+
+/* "Waiting for you" stays as a small badge on chat tabs and session cards. */
+.ct-dot.st-waiting, .ct-dot.st-wait { background: var(--st-wait, #ff4f9a); box-shadow: 0 0 8px var(--st-wait, #ff4f9a); animation: cmp-pulse 1.2s ease-in-out infinite; }
+.dt-minimal .card.st-waiting { position: relative; animation: none; }
+.dt-minimal .card.st-waiting::after {
+  content: 'seni bekliyor'; position: absolute; top: 6px; right: 8px; padding: 1px 7px; border-radius: 999px;
+  background: var(--st-wait, #ff4f9a); color: #fff; font-size: 10px; line-height: 16px; pointer-events: none;
+}
+@keyframes cmp-pulse { 50% { opacity: 0.45; } }
+@media (max-width: 920px) { .dt-minimal #app, .dt-detailed #app { grid-template-rows: auto; } }
